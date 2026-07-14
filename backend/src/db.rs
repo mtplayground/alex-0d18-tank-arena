@@ -29,6 +29,14 @@ pub async fn connect_from_config(config: &DatabaseConfig) -> Result<PgPool, Data
     connect(config.url.as_str()).await
 }
 
+pub fn connect_lazy_from_config(config: &DatabaseConfig) -> Result<PgPool, DatabaseError> {
+    PgPoolOptions::new()
+        .max_connections(DEFAULT_MAX_CONNECTIONS)
+        .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECONDS))
+        .connect_lazy(config.url.as_str())
+        .map_err(DatabaseError::from)
+}
+
 pub async fn connect(database_url: &str) -> Result<PgPool, DatabaseError> {
     PgPoolOptions::new()
         .max_connections(DEFAULT_MAX_CONNECTIONS)
