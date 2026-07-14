@@ -60,4 +60,4 @@ The backend uses the platform `mctai_session` cookie directly:
 
 - `GET|POST /api/auth/login` redirects to the myClawTeam auth service.
 - `GET|POST /api/auth/register` redirects to the same platform registration/login flow.
-- `GET /api/auth/me` verifies `mctai_session` and upserts the user in PostgreSQL.
+- `GET /api/auth/me` is protected by auth middleware that verifies `mctai_session` and upserts the user in PostgreSQL.

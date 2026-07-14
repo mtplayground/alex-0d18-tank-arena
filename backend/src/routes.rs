@@ -1,20 +1,21 @@
 use axum::{
     extract::{Path, State},
     http::{header::HOST, HeaderMap, HeaderName, StatusCode},
+    middleware::from_fn_with_state,
     response::{IntoResponse, Redirect},
     routing::get,
-    Json, Router,
+    Extension, Json, Router,
 };
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
 use tracing::error;
 
-use backend::auth::{AuthClient, AuthError};
+use backend::auth::AuthClient;
 use backend::config::AppConfig;
 use backend::storage::{AssetDefinition, StorageClient, StorageError, GAME_ASSETS};
-use backend::users::{upsert_platform_user, PlatformUserInput};
 
 use crate::{
+    auth_middleware::{require_auth, AuthenticatedUser},
     protocol::{
         AssetManifestResponse, AssetResponse, AuthSessionResponse, ErrorResponse, HealthResponse,
         RenderingStatus, RuntimeStatus,
@@ -29,15 +30,18 @@ pub fn router(
     auth: AuthClient,
 ) -> Router {
     let state = AppState::new(config, storage, database, auth);
+    let protected_routes = Router::new()
+        .route("/api/auth/me", get(auth_me))
+        .route_layer(from_fn_with_state(state.clone(), require_auth));
 
     Router::new()
         .route("/api/health", get(health))
         .route("/api/status", get(status))
         .route("/api/auth/login", get(auth_redirect).post(auth_redirect))
         .route("/api/auth/register", get(auth_redirect).post(auth_redirect))
-        .route("/api/auth/me", get(auth_me))
         .route("/api/assets/manifest", get(asset_manifest))
         .route("/api/assets/:category/:asset_id", get(asset_redirect))
+        .merge(protected_routes)
         .fallback(not_found)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -61,36 +65,27 @@ async fn status() -> Json<RuntimeStatus> {
     })
 }
 
-async fn auth_redirect(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Redirect, AuthRouteError> {
+async fn auth_redirect(State(state): State<AppState>, headers: HeaderMap) -> Redirect {
     let return_to = frontend_return_to(&headers, &state.config);
     let login_url = state.auth.login_url(&return_to);
 
-    Ok(Redirect::temporary(&login_url))
+    Redirect::temporary(&login_url)
 }
 
-async fn auth_me(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<AuthSessionResponse>, AuthRouteError> {
-    let claims = state.auth.verify_headers(&headers).await?;
-    let registration =
-        upsert_platform_user(&state.database, PlatformUserInput::from(claims)).await?;
-    let profile = registration.profile();
+async fn auth_me(Extension(user): Extension<AuthenticatedUser>) -> Json<AuthSessionResponse> {
+    let profile = user.profile;
     let display_name = profile.name.clone().unwrap_or_else(|| profile.email.clone());
-    let message = if registration.registered {
+    let message = if user.registered {
         "Registration complete!".to_owned()
     } else {
         format!("Welcome back, {display_name}!")
     };
 
-    Ok(Json(AuthSessionResponse {
+    Json(AuthSessionResponse {
         user: profile,
-        registered: registration.registered,
+        registered: user.registered,
         message,
-    }))
+    })
 }
 
 async fn asset_manifest(
@@ -192,58 +187,6 @@ impl IntoResponse for AssetRouteError {
                     StatusCode::BAD_GATEWAY,
                     Json(ErrorResponse {
                         error: "asset url unavailable",
-                    }),
-                )
-                    .into_response()
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum AuthRouteError {
-    Auth(AuthError),
-    Database(sqlx::Error),
-}
-
-impl From<AuthError> for AuthRouteError {
-    fn from(error: AuthError) -> Self {
-        Self::Auth(error)
-    }
-}
-
-impl From<sqlx::Error> for AuthRouteError {
-    fn from(error: sqlx::Error) -> Self {
-        Self::Database(error)
-    }
-}
-
-impl IntoResponse for AuthRouteError {
-    fn into_response(self) -> axum::response::Response {
-        match self {
-            Self::Auth(AuthError::MissingSession) => (
-                StatusCode::UNAUTHORIZED,
-                Json(ErrorResponse {
-                    error: "not authenticated",
-                }),
-            )
-                .into_response(),
-            Self::Auth(error) => {
-                error!(?error, "failed to verify auth session");
-                (
-                    StatusCode::UNAUTHORIZED,
-                    Json(ErrorResponse {
-                        error: "invalid session",
-                    }),
-                )
-                    .into_response()
-            }
-            Self::Database(error) => {
-                error!(?error, "failed to upsert authenticated user");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: "user persistence failed",
                     }),
                 )
                     .into_response()

@@ -1,3 +1,4 @@
+mod auth_middleware;
 mod protocol;
 mod routes;
 mod state;
