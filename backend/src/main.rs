@@ -9,6 +9,7 @@ use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use backend::config::AppConfig;
+use backend::storage::StorageClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -22,7 +23,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let config = AppConfig::from_env()?;
     let address = config.socket_addr()?;
-    let app = routes::router(config.clone());
+    let storage = StorageClient::from_config(&config.object_storage).await;
+    let app = routes::router(config.clone(), storage);
     let listener = TcpListener::bind(address).await?;
 
     info!(%address, "backend listening");

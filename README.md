@@ -44,3 +44,12 @@ Build and validate the full workspace:
 npm run build
 npm run lint
 ```
+
+## Asset URLs
+
+The backend signs private object-storage assets at request time:
+
+- `GET /api/assets/manifest` returns signed URLs for model, terrain, and texture assets.
+- `GET /api/assets/{category}/{asset_id}` redirects to a fresh signed asset URL.
+
+Object keys are always scoped under `OBJECT_STORAGE_PREFIX`.
