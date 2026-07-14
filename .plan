@@ -1,0 +1,30 @@
+Architecture plan
+
+Module structure and file organization
+- `frontend/`: browser client for auth screens, solo mission UI, multiplayer duel UI, combat HUD, camera controls, and 3D rendering. Keep rendering code under `frontend/src/game/rendering`, gameplay input/state presentation under `frontend/src/game`, auth context/routes under `frontend/src/auth`, and API/WebSocket clients under `frontend/src/api`.
+- `backend/`: HTTP API, WebSocket server, matchmaking, authoritative match sessions, mission persistence, asset URL generation, and deployment/runtime configuration. Organize by feature: `auth`, `users`, `missions`, `matches`, `matchmaking`, `assets`, `config`, and `db`.
+- `shared/`: protocol and domain types used by both sides where the chosen stack supports sharing. Include user-safe DTOs, auth request/response shapes, mission state, combat events, WebSocket messages, match snapshots, and validation schemas.
+- `migrations/`: database migrations owned by the backend. Keep schema changes additive and issue-scoped.
+- `tests/`: end-to-end tests for solo mission and multiplayer duel flows, plus focused backend integration tests where persistence or auth behavior is risky.
+
+Issue dependencies
+- #1 establishes the frontend/backend skeleton, local scripts, lint/build/test entry points, and the baseline folder layout.
+- #2 and #3 unblock most backend work by defining persistence and runtime configuration.
+- #4 depends on #3 and supports later rendering/asset delivery work.
+- #5-#9 form the authentication slice: data model, hashing, registration/login, middleware, password reset, then frontend auth pages/context.
+- #10-#17 form the core solo combat slice: terrain rendering, cover/line-of-sight, movement/camera, stylized visuals, armor angle, damage mitigation, firing/hit detection, and HUD feedback.
+- #18-#21 build solo mission playability on top of combat: AI behavior, mission sequencing, progress persistence, and mission UI.
+- #22-#27 build multiplayer on top of auth and combat primitives: WebSocket sessions, matchmaking, authoritative sync, reconnection, results persistence, and duel UI.
+- #28 and #29 validate the critical user journeys after their respective slices exist.
+- #30 reviews cross-cutting error behavior after major features are implemented.
+- #31 packages production configuration, build output, health checks, and deployment documentation.
+
+Key design decisions
+- Use a layered backend: route handlers validate input and translate errors, services own domain behavior, repositories own database access, and WebSocket session code owns connection lifecycle only.
+- Treat the server as authoritative for multiplayer match state. The frontend predicts only local presentation where needed and reconciles against server snapshots/events.
+- Keep solo combat logic deterministic and separable from rendering so AI, missions, tests, and multiplayer synchronization can reuse the same rules.
+- Define shared message contracts early for HTTP DTOs and WebSocket events to prevent frontend/backend drift.
+- Store passwords only as modern salted password hashes, never raw or reversible values. Password reset tokens should be single-use, expiring, and stored hashed.
+- Derive public origin from proxy-aware configuration or forwarded headers. Do not base CORS or same-origin decisions on the raw internal `Host` header.
+- Keep asset storage behind a small backend adapter so local development, object storage, and signed/public asset URLs can vary without touching gameplay code.
+- Prefer focused migrations and tests per issue so each later session can ship one vertical slice without broad rewrites.
