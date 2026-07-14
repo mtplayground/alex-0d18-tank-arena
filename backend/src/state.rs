@@ -1,4 +1,4 @@
-use crate::config::AppConfig;
+use backend::config::AppConfig;
 
 #[derive(Clone, Debug)]
 pub struct AppState {

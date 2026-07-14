@@ -18,6 +18,14 @@ Install JavaScript dependencies:
 npm install
 ```
 
+Create a local environment file from the example when running the backend locally:
+
+```bash
+cp .env.example .env
+```
+
+The production runtime injects environment variables directly. Do not commit `.env` files.
+
 Run the backend on `0.0.0.0:8080`:
 
 ```bash

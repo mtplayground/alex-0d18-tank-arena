@@ -3,6 +3,8 @@ use std::time::Duration;
 use sqlx::{postgres::PgPoolOptions, PgPool};
 use thiserror::Error;
 
+use crate::config::DatabaseConfig;
+
 const DEFAULT_MAX_CONNECTIONS: u32 = 5;
 const DEFAULT_ACQUIRE_TIMEOUT_SECONDS: u64 = 10;
 
@@ -20,10 +22,18 @@ pub async fn connect_from_env() -> Result<PgPool, DatabaseError> {
     let database_url =
         std::env::var("DATABASE_URL").map_err(|_| DatabaseError::MissingDatabaseUrl)?;
 
+    connect(&database_url).await
+}
+
+pub async fn connect_from_config(config: &DatabaseConfig) -> Result<PgPool, DatabaseError> {
+    connect(config.url.as_str()).await
+}
+
+pub async fn connect(database_url: &str) -> Result<PgPool, DatabaseError> {
     PgPoolOptions::new()
         .max_connections(DEFAULT_MAX_CONNECTIONS)
         .acquire_timeout(Duration::from_secs(DEFAULT_ACQUIRE_TIMEOUT_SECONDS))
-        .connect(&database_url)
+        .connect(database_url)
         .await
         .map_err(DatabaseError::from)
 }

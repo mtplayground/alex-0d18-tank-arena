@@ -1,4 +1,3 @@
-mod config;
 mod protocol;
 mod routes;
 mod state;
@@ -9,7 +8,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-use crate::config::AppConfig;
+use backend::config::AppConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {

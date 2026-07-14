@@ -7,8 +7,9 @@ use axum::{
 };
 use tower_http::trace::TraceLayer;
 
+use backend::config::AppConfig;
+
 use crate::{
-    config::AppConfig,
     protocol::{ErrorResponse, HealthResponse, RenderingStatus, RuntimeStatus},
     state::AppState,
 };
