@@ -23,3 +23,18 @@ pub struct RenderingStatus {
 pub struct ErrorResponse {
     pub error: &'static str,
 }
+
+#[derive(Debug, Serialize)]
+pub struct AssetManifestResponse {
+    pub assets: Vec<AssetResponse>,
+    pub expires_in_seconds: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AssetResponse {
+    pub id: &'static str,
+    pub category: &'static str,
+    pub label: &'static str,
+    pub content_type: &'static str,
+    pub url: String,
+}
