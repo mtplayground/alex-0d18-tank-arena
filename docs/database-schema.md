@@ -6,6 +6,8 @@ and match history/statistics.
 ## Tables
 
 - `users`: one row per authenticated platform user, keyed by the stable auth `sub`.
+  Optional local password hashes are stored as Argon2id PHC strings for flows that need a
+  password verifier; platform-auth users can leave these fields null.
 - `mission_progress`: per-user mission state with a unique `(user_sub, mission_key)` pair.
 - `matches`: one row per solo or duel match, including lifecycle status and winner.
 - `match_participants`: per-user match results and combat counters.
