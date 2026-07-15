@@ -1,4 +1,8 @@
-import type { AuthSessionResponse, HealthResponse } from '../../../shared/protocol';
+import type {
+  AssetManifestResponse,
+  AuthSessionResponse,
+  HealthResponse,
+} from '../../../shared/protocol';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
@@ -29,6 +33,16 @@ export async function fetchCurrentSession(
   }
 
   return response.json() as Promise<AuthSessionResponse>;
+}
+
+export async function fetchAssetManifest(signal?: AbortSignal): Promise<AssetManifestResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/assets/manifest`, { signal });
+
+  if (!response.ok) {
+    throw new Error(`Asset manifest failed with status ${response.status}`);
+  }
+
+  return response.json() as Promise<AssetManifestResponse>;
 }
 
 export function authRedirectUrl(mode: 'login' | 'register'): string {
