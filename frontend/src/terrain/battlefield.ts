@@ -2,6 +2,9 @@ import { BufferGeometry, Float32BufferAttribute } from 'three';
 
 export type Vec3 = [number, number, number];
 
+export const BATTLEFIELD_SIZE = 12;
+export const BATTLEFIELD_HALF_SIZE = BATTLEFIELD_SIZE / 2;
+
 export type RidgeMarker = {
   id: string;
   position: Vec3;
@@ -42,7 +45,7 @@ export const RIDGE_MARKERS: RidgeMarker[] = [
 
 export function createTerrainGeometry(): BufferGeometry {
   const segments = 56;
-  const size = 12;
+  const size = BATTLEFIELD_SIZE;
   const half = size / 2;
   const positions: number[] = [];
   const uvs: number[] = [];
