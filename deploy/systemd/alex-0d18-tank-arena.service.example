@@ -1,0 +1,19 @@
+[Unit]
+Description=alex-0d18-tank-arena backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alex-tank-arena
+Group=alex-tank-arena
+WorkingDirectory=/opt/alex-0d18-tank-arena/current
+Environment=APP_ENV_FILE=/opt/alex-0d18-tank-arena/current/.env.production
+ExecStart=/opt/alex-0d18-tank-arena/current/run.sh
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -45,6 +45,14 @@ npm run build
 npm run lint
 ```
 
+Create a self-hosted production bundle:
+
+```bash
+npm run deploy:bundle
+```
+
+Deployment details live in `deploy/README.md`. The bundle contains the release backend binary, frontend static files, migrations, and service/proxy examples for a bare file/directory host.
+
 ## Asset URLs
 
 The backend signs private object-storage assets at request time:
