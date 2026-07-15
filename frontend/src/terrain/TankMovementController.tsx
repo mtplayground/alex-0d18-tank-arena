@@ -12,6 +12,7 @@ import {
   type ArmorAngleReading,
 } from './armorAngle';
 import { BATTLEFIELD_HALF_SIZE, terrainHeight, type Vec3 } from './battlefield';
+import { BASE_SHELL_DAMAGE, calculateDamageMitigation, type DamageMitigation } from './damageModel';
 import { DEFAULT_SIGHT_END, evaluateProjectilePath } from './occlusion';
 import { TANK_EYE_HEIGHT, createInitialTankPose, type TankPose } from './tankState';
 import { TACTICAL_COLORS } from './visualStyle';
@@ -185,7 +186,7 @@ function TankSightline({ poseRef }: TankMovementControllerProps) {
 function ArmorAngleReadout({ poseRef }: TankMovementControllerProps) {
   const groupRef = useRef<Group>(null);
   const updateTimer = useRef(0);
-  const [reading, setReading] = useState<ArmorAngleReading>(() => readArmorAngle(poseRef.current));
+  const [reading, setReading] = useState(() => readArmorState(poseRef.current));
 
   useFrame((_, delta) => {
     const pose = poseRef.current;
@@ -197,17 +198,21 @@ function ArmorAngleReadout({ poseRef }: TankMovementControllerProps) {
     updateTimer.current += delta;
     if (updateTimer.current >= 0.12) {
       updateTimer.current = 0;
-      setReading(readArmorAngle(pose));
+      setReading(readArmorState(pose));
     }
   });
 
   return (
     <group ref={groupRef} position={poseRef.current.position}>
       <Html center distanceFactor={7.5} className="armor-angle-readout">
-        <span>Hull {reading.hullAngleDegrees}°</span>
-        <strong>{reading.hullFacing}</strong>
-        <span>Turret {reading.turretAngleDegrees}°</span>
-        <strong>{reading.turretFacing}</strong>
+        <span>Hull {reading.armor.hullAngleDegrees}°</span>
+        <strong>{reading.armor.hullFacing}</strong>
+        <span>Turret {reading.armor.turretAngleDegrees}°</span>
+        <strong>{reading.armor.turretFacing}</strong>
+        <span>Damage {reading.damage.finalDamage}</span>
+        <strong>{reading.damage.ruleLabel}</strong>
+        <span>Mitigation {reading.damage.mitigationPercent}%</span>
+        <strong>{reading.damage.outcome}</strong>
       </Html>
     </group>
   );
@@ -298,13 +303,18 @@ function integrateTankPose(pose: TankPose, input: DriveInput, delta: number): Ta
   };
 }
 
-function readArmorAngle(pose: TankPose): ArmorAngleReading {
-  return calculateArmorAngle({
+function readArmorState(pose: TankPose): { armor: ArmorAngleReading; damage: DamageMitigation } {
+  const armor = calculateArmorAngle({
     hullHeading: pose.heading,
     incomingFireOrigin: DEFAULT_SIGHT_END,
     tankPosition: pose.position,
     turretHeading: pose.turretHeading,
   });
+
+  return {
+    armor,
+    damage: calculateDamageMitigation(armor, BASE_SHELL_DAMAGE),
+  };
 }
 
 function tankMuzzlePosition({ position, turretHeading }: TankPose): Vec3 {
