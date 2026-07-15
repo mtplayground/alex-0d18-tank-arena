@@ -1,0 +1,221 @@
+import { useFrame } from '@react-three/fiber';
+import { type MutableRefObject, useEffect, useMemo, useRef } from 'react';
+import { BufferGeometry, Group, Line, LineBasicMaterial, Mesh, Vector3 } from 'three';
+
+import { BATTLEFIELD_HALF_SIZE, terrainHeight, type Vec3 } from './battlefield';
+import { DEFAULT_SIGHT_END, evaluateProjectilePath } from './occlusion';
+import { TANK_EYE_HEIGHT, createInitialTankPose, type TankPose } from './tankState';
+
+type TankMovementControllerProps = {
+  poseRef: MutableRefObject<TankPose>;
+};
+
+type DriveInput = {
+  forward: boolean;
+  reverse: boolean;
+  left: boolean;
+  right: boolean;
+};
+
+const DRIVE_SPEED = 2.35;
+const REVERSE_SPEED = 1.35;
+const TURN_SPEED = 1.85;
+const TERRAIN_MARGIN = 0.85;
+
+export function TankMovementController({ poseRef }: TankMovementControllerProps) {
+  const groupRef = useRef<Group>(null);
+  const driveInput = useKeyboardDrive();
+  const tankPose = useRef(createInitialTankPose());
+
+  useFrame((_, delta) => {
+    const nextPose = integrateTankPose(tankPose.current, driveInput.current, delta);
+    tankPose.current = nextPose;
+    poseRef.current = nextPose;
+
+    if (groupRef.current) {
+      groupRef.current.position.set(...nextPose.position);
+      groupRef.current.rotation.y = nextPose.heading;
+    }
+  });
+
+  return (
+    <>
+      <group
+        ref={groupRef}
+        position={tankPose.current.position}
+        rotation-y={tankPose.current.heading}
+      >
+        <TankModel />
+      </group>
+      <TankSightline poseRef={poseRef} />
+    </>
+  );
+}
+
+function TankModel() {
+  return (
+    <group position={[0, -0.23, 0]}>
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[1.2, 0.45, 1.8]} />
+        <meshStandardMaterial color="#465468" roughness={0.5} metalness={0.2} />
+      </mesh>
+      <mesh position={[0, 0.35, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.7, 0.35, 0.85]} />
+        <meshStandardMaterial color="#59697d" roughness={0.45} metalness={0.25} />
+      </mesh>
+      <mesh position={[0, 0.42, -0.9]} rotation-x={Math.PI / 2} castShadow>
+        <cylinderGeometry args={[0.08, 0.08, 1.2, 16]} />
+        <meshStandardMaterial color="#2f3744" roughness={0.4} metalness={0.4} />
+      </mesh>
+      <mesh position={[-0.38, -0.27, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.18, 0.2, 1.9]} />
+        <meshStandardMaterial color="#2b323d" roughness={0.65} metalness={0.15} />
+      </mesh>
+      <mesh position={[0.38, -0.27, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.18, 0.2, 1.9]} />
+        <meshStandardMaterial color="#2b323d" roughness={0.65} metalness={0.15} />
+      </mesh>
+    </group>
+  );
+}
+
+function TankSightline({ poseRef }: TankMovementControllerProps) {
+  const hitMarkerRef = useRef<Mesh>(null);
+  const geometry = useMemo(() => new BufferGeometry(), []);
+  const material = useMemo(
+    () =>
+      new LineBasicMaterial({
+        color: '#3fb79a',
+        transparent: true,
+        opacity: 0.86,
+      }),
+    [],
+  );
+  const line = useMemo(() => new Line(geometry, material), [geometry, material]);
+
+  useEffect(
+    () => () => {
+      geometry.dispose();
+      material.dispose();
+    },
+    [geometry, material],
+  );
+
+  useFrame(() => {
+    const pose = poseRef.current;
+    const muzzle = tankMuzzlePosition(pose);
+    const result = evaluateProjectilePath(muzzle, DEFAULT_SIGHT_END, 0.08);
+    const end = result.hit?.point ?? DEFAULT_SIGHT_END;
+
+    geometry.setFromPoints([new Vector3(...muzzle), new Vector3(...end)]);
+    material.color.set(result.clear ? '#3fb79a' : '#d35f4f');
+
+    if (hitMarkerRef.current) {
+      hitMarkerRef.current.visible = !result.clear && result.hit !== undefined;
+      if (result.hit) {
+        hitMarkerRef.current.position.set(...result.hit.point);
+      }
+    }
+  });
+
+  return (
+    <>
+      <primitive object={line} />
+      <mesh ref={hitMarkerRef} visible={false}>
+        <sphereGeometry args={[0.13, 16, 16]} />
+        <meshStandardMaterial color="#d35f4f" emissive="#732c25" emissiveIntensity={0.45} />
+      </mesh>
+    </>
+  );
+}
+
+function useKeyboardDrive() {
+  const input = useRef<DriveInput>({
+    forward: false,
+    reverse: false,
+    left: false,
+    right: false,
+  });
+
+  useEffect(() => {
+    const update = (event: KeyboardEvent, pressed: boolean) => {
+      if (event.repeat && pressed) {
+        return;
+      }
+
+      switch (event.code) {
+        case 'KeyW':
+        case 'ArrowUp':
+          input.current.forward = pressed;
+          break;
+        case 'KeyS':
+        case 'ArrowDown':
+          input.current.reverse = pressed;
+          break;
+        case 'KeyA':
+        case 'ArrowLeft':
+          input.current.left = pressed;
+          break;
+        case 'KeyD':
+        case 'ArrowRight':
+          input.current.right = pressed;
+          break;
+        default:
+          return;
+      }
+
+      event.preventDefault();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => update(event, true);
+    const onKeyUp = (event: KeyboardEvent) => update(event, false);
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
+
+  return input;
+}
+
+function integrateTankPose(pose: TankPose, input: DriveInput, delta: number): TankPose {
+  const throttle = Number(input.forward) - Number(input.reverse);
+  const turn = Number(input.left) - Number(input.right);
+  const speed = throttle >= 0 ? throttle * DRIVE_SPEED : throttle * REVERSE_SPEED;
+  const heading = pose.heading + turn * TURN_SPEED * delta * (throttle === 0 ? 0.72 : 1);
+  const forward = headingToForward(heading);
+  const nextX = clamp(
+    pose.position[0] + forward[0] * speed * delta,
+    -BATTLEFIELD_HALF_SIZE + TERRAIN_MARGIN,
+    BATTLEFIELD_HALF_SIZE - TERRAIN_MARGIN,
+  );
+  const nextZ = clamp(
+    pose.position[2] + forward[1] * speed * delta,
+    -BATTLEFIELD_HALF_SIZE + TERRAIN_MARGIN,
+    BATTLEFIELD_HALF_SIZE - TERRAIN_MARGIN,
+  );
+
+  return {
+    position: [nextX, terrainHeight(nextX, nextZ) + TANK_EYE_HEIGHT, nextZ],
+    heading,
+    speed,
+  };
+}
+
+function tankMuzzlePosition({ position, heading }: TankPose): Vec3 {
+  const forward = headingToForward(heading);
+
+  return [position[0] + forward[0] * 1.24, position[1] + 0.08, position[2] + forward[1] * 1.24];
+}
+
+function headingToForward(heading: number): [number, number] {
+  return [Math.sin(heading), -Math.cos(heading)];
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
