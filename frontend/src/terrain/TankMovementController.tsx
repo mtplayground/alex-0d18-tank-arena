@@ -1,8 +1,16 @@
 import { useFrame } from '@react-three/fiber';
-import { type MutableRefObject, useEffect, useMemo, useRef } from 'react';
+import { Html } from '@react-three/drei';
+import { type MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { BufferGeometry, Group, Line, LineBasicMaterial, Mesh, Vector3 } from 'three';
 
 import { BoxSilhouette, CylinderSilhouette } from './Silhouette';
+import {
+  bearingToPoint,
+  calculateArmorAngle,
+  normalizeRadians,
+  rotateTowardAngle,
+  type ArmorAngleReading,
+} from './armorAngle';
 import { BATTLEFIELD_HALF_SIZE, terrainHeight, type Vec3 } from './battlefield';
 import { DEFAULT_SIGHT_END, evaluateProjectilePath } from './occlusion';
 import { TANK_EYE_HEIGHT, createInitialTankPose, type TankPose } from './tankState';
@@ -22,10 +30,12 @@ type DriveInput = {
 const DRIVE_SPEED = 2.35;
 const REVERSE_SPEED = 1.35;
 const TURN_SPEED = 1.85;
+const TURRET_TURN_SPEED = 2.8;
 const TERRAIN_MARGIN = 0.85;
 
 export function TankMovementController({ poseRef }: TankMovementControllerProps) {
   const groupRef = useRef<Group>(null);
+  const turretRef = useRef<Group>(null);
   const driveInput = useKeyboardDrive();
   const tankPose = useRef(createInitialTankPose());
 
@@ -38,6 +48,10 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
       groupRef.current.position.set(...nextPose.position);
       groupRef.current.rotation.y = nextPose.heading;
     }
+
+    if (turretRef.current) {
+      turretRef.current.rotation.y = normalizeRadians(nextPose.turretHeading - nextPose.heading);
+    }
   });
 
   return (
@@ -47,14 +61,15 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         position={tankPose.current.position}
         rotation-y={tankPose.current.heading}
       >
-        <TankModel />
+        <TankModel turretRef={turretRef} />
       </group>
       <TankSightline poseRef={poseRef} />
+      <ArmorAngleReadout poseRef={poseRef} />
     </>
   );
 }
 
-function TankModel() {
+function TankModel({ turretRef }: { turretRef: MutableRefObject<Group | null> }) {
   return (
     <group position={[0, -0.23, 0]}>
       <BoxSilhouette args={[1.2, 0.45, 1.8]} />
@@ -67,26 +82,28 @@ function TankModel() {
           metalness={0.14}
         />
       </mesh>
-      <BoxSilhouette args={[0.7, 0.35, 0.85]} position={[0, 0.35, 0]} expansion={1.075} />
-      <mesh position={[0, 0.35, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.7, 0.35, 0.85]} />
-        <meshStandardMaterial
-          color={TACTICAL_COLORS.tankTop}
-          flatShading
-          roughness={0.45}
-          metalness={0.18}
+      <group ref={turretRef}>
+        <BoxSilhouette args={[0.7, 0.35, 0.85]} position={[0, 0.35, 0]} expansion={1.075} />
+        <mesh position={[0, 0.35, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.7, 0.35, 0.85]} />
+          <meshStandardMaterial
+            color={TACTICAL_COLORS.tankTop}
+            flatShading
+            roughness={0.45}
+            metalness={0.18}
+          />
+        </mesh>
+        <CylinderSilhouette
+          args={[0.08, 0.08, 1.2, 16]}
+          position={[0, 0.42, -0.9]}
+          rotation={[Math.PI / 2, 0, 0]}
+          expansion={1.18}
         />
-      </mesh>
-      <CylinderSilhouette
-        args={[0.08, 0.08, 1.2, 16]}
-        position={[0, 0.42, -0.9]}
-        rotation={[Math.PI / 2, 0, 0]}
-        expansion={1.18}
-      />
-      <mesh position={[0, 0.42, -0.9]} rotation-x={Math.PI / 2} castShadow>
-        <cylinderGeometry args={[0.08, 0.08, 1.2, 16]} />
-        <meshStandardMaterial color={TACTICAL_COLORS.ink} roughness={0.4} metalness={0.28} />
-      </mesh>
+        <mesh position={[0, 0.42, -0.9]} rotation-x={Math.PI / 2} castShadow>
+          <cylinderGeometry args={[0.08, 0.08, 1.2, 16]} />
+          <meshStandardMaterial color={TACTICAL_COLORS.ink} roughness={0.4} metalness={0.28} />
+        </mesh>
+      </group>
       <BoxSilhouette args={[0.18, 0.2, 1.9]} position={[-0.38, -0.27, 0]} expansion={1.08} />
       <mesh position={[-0.38, -0.27, 0]} castShadow receiveShadow>
         <boxGeometry args={[0.18, 0.2, 1.9]} />
@@ -165,6 +182,37 @@ function TankSightline({ poseRef }: TankMovementControllerProps) {
   );
 }
 
+function ArmorAngleReadout({ poseRef }: TankMovementControllerProps) {
+  const groupRef = useRef<Group>(null);
+  const updateTimer = useRef(0);
+  const [reading, setReading] = useState<ArmorAngleReading>(() => readArmorAngle(poseRef.current));
+
+  useFrame((_, delta) => {
+    const pose = poseRef.current;
+
+    if (groupRef.current) {
+      groupRef.current.position.set(pose.position[0], pose.position[1] + 1.05, pose.position[2]);
+    }
+
+    updateTimer.current += delta;
+    if (updateTimer.current >= 0.12) {
+      updateTimer.current = 0;
+      setReading(readArmorAngle(pose));
+    }
+  });
+
+  return (
+    <group ref={groupRef} position={poseRef.current.position}>
+      <Html center distanceFactor={7.5} className="armor-angle-readout">
+        <span>Hull {reading.hullAngleDegrees}°</span>
+        <strong>{reading.hullFacing}</strong>
+        <span>Turret {reading.turretAngleDegrees}°</span>
+        <strong>{reading.turretFacing}</strong>
+      </Html>
+    </group>
+  );
+}
+
 function useKeyboardDrive() {
   const input = useRef<DriveInput>({
     forward: false,
@@ -235,15 +283,32 @@ function integrateTankPose(pose: TankPose, input: DriveInput, delta: number): Ta
     BATTLEFIELD_HALF_SIZE - TERRAIN_MARGIN,
   );
 
+  const position: Vec3 = [nextX, terrainHeight(nextX, nextZ) + TANK_EYE_HEIGHT, nextZ];
+  const targetTurretHeading = bearingToPoint(position, DEFAULT_SIGHT_END);
+
   return {
-    position: [nextX, terrainHeight(nextX, nextZ) + TANK_EYE_HEIGHT, nextZ],
+    position,
     heading,
     speed,
+    turretHeading: rotateTowardAngle(
+      pose.turretHeading,
+      targetTurretHeading,
+      TURRET_TURN_SPEED * delta,
+    ),
   };
 }
 
-function tankMuzzlePosition({ position, heading }: TankPose): Vec3 {
-  const forward = headingToForward(heading);
+function readArmorAngle(pose: TankPose): ArmorAngleReading {
+  return calculateArmorAngle({
+    hullHeading: pose.heading,
+    incomingFireOrigin: DEFAULT_SIGHT_END,
+    tankPosition: pose.position,
+    turretHeading: pose.turretHeading,
+  });
+}
+
+function tankMuzzlePosition({ position, turretHeading }: TankPose): Vec3 {
+  const forward = headingToForward(turretHeading);
 
   return [position[0] + forward[0] * 1.24, position[1] + 0.08, position[2] + forward[1] * 1.24];
 }
