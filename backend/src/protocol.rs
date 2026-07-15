@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use backend::match_results::{
+    MatchResultsFinalize, MatchResultsFinalizeResponse, MatchResultEntry, MatchResultsSummary,
+};
 use backend::matchmaking::{MatchmakingJoinRequest, MatchmakingResponse};
 use backend::mission_progress::{MissionProgressEntry, MissionProgressUpsert};
 use backend::users::UserProfile;
@@ -80,3 +83,12 @@ pub type MissionProgressUpdatePayload = MissionProgressUpsert;
 
 pub type MatchmakingJoinPayload = MatchmakingJoinRequest;
 pub type MatchmakingQueueResponse = MatchmakingResponse;
+
+#[derive(Debug, Serialize)]
+pub struct MatchResultsListResponse {
+    pub results: Vec<MatchResultEntry>,
+    pub summary: MatchResultsSummary,
+}
+
+pub type MatchResultsFinalizePayload = MatchResultsFinalize;
+pub type MatchResultsFinalizeResponseBody = MatchResultsFinalizeResponse;

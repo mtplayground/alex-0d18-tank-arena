@@ -98,3 +98,66 @@ export type MatchmakingQueueResponse = {
   queue_position: number | null;
   status: MatchmakingStatus;
 };
+
+export type MatchResultOutcome = 'abandoned' | 'draw' | 'loss' | 'win';
+
+export type MatchResultParticipantInput = {
+  damage_dealt: number;
+  damage_taken: number;
+  result: MatchResultOutcome;
+  score: number;
+  shots_fired: number;
+  shots_hit: number;
+  stats?: Record<string, unknown>;
+  survived: boolean;
+  user_sub: string;
+};
+
+export type MatchResultsFinalizePayload = {
+  duration_ms?: number | null;
+  participants: MatchResultParticipantInput[];
+};
+
+export type MatchResultEntry = {
+  damage_dealt: number;
+  damage_taken: number;
+  duration_ms: number | null;
+  ended_at: string | null;
+  map_key: string | null;
+  match_id: string;
+  mode: string;
+  recorded_at: string;
+  result: MatchResultOutcome;
+  score: number;
+  shots_fired: number;
+  shots_hit: number;
+  stats: Record<string, unknown>;
+  survived: boolean;
+  user_sub: string;
+  winner_sub: string | null;
+};
+
+export type MatchResultsSummary = {
+  draws: number;
+  losses: number;
+  matches_played: number;
+  total_damage_dealt: number;
+  total_damage_taken: number;
+  total_score: number;
+  total_shots_fired: number;
+  total_shots_hit: number;
+  updated_at: string | null;
+  wins: number;
+};
+
+export type MatchResultsListResponse = {
+  results: MatchResultEntry[];
+  summary: MatchResultsSummary;
+};
+
+export type MatchResultsFinalizeResponse = {
+  match_id: string;
+  results: MatchResultEntry[];
+  status: string;
+  summary: MatchResultsSummary;
+};
