@@ -6,6 +6,7 @@ import { BufferGeometry, Group, Line, LineBasicMaterial, Mesh, Vector3 } from 't
 import { AiOpponentController } from './AiOpponentController';
 import { CombatHud } from './CombatHud';
 import { MissionPanel } from './MissionPanel';
+import { MissionResultsScreen, MissionSelectScreen } from './MissionScreens';
 import { ProjectileSystem } from './ProjectileSystem';
 import { BoxSilhouette, CylinderSilhouette } from './Silhouette';
 import { createInitialAiPose } from './aiBehavior';
@@ -49,8 +50,20 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
   const aiPoseRef = useRef<TankPose>(createInitialAiPose());
   const missionRunner = useMissionRunner();
   const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
-  const { activeMission, applyResolution, sequence, status, syncStatus, targetIntegrity } =
-    missionRunner;
+  const {
+    activeMission,
+    applyResolution,
+    continueFromResults,
+    missionChoices,
+    result,
+    retryMission,
+    screen,
+    sequence,
+    startMission,
+    status,
+    syncStatus,
+    targetIntegrity,
+  } = missionRunner;
   const handleProjectileResolution = useCallback(
     (resolution: ProjectileResolution) => {
       setLastResolution(resolution);
@@ -96,6 +109,7 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         playerPoseRef={poseRef}
       />
       <ProjectileSystem
+        disabled={screen !== 'combat'}
         onResolution={handleProjectileResolution}
         poseRef={poseRef}
         targetPoseRef={aiPoseRef}
@@ -107,12 +121,29 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         poseRef={poseRef}
         targetPoseRef={aiPoseRef}
       />
-      <MissionPanel
-        mission={activeMission}
-        sequence={sequence}
-        status={status}
-        syncStatus={syncStatus}
-      />
+      {screen === 'combat' ? (
+        <MissionPanel
+          mission={activeMission}
+          sequence={sequence}
+          status={status}
+          syncStatus={syncStatus}
+        />
+      ) : null}
+      {screen === 'select' ? (
+        <MissionSelectScreen
+          missions={missionChoices}
+          onStartMission={startMission}
+          syncStatus={syncStatus}
+        />
+      ) : null}
+      {screen === 'results' && result ? (
+        <MissionResultsScreen
+          onContinue={continueFromResults}
+          onRetry={retryMission}
+          result={result}
+          syncStatus={syncStatus}
+        />
+      ) : null}
     </>
   );
 }

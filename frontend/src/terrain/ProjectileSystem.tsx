@@ -13,6 +13,7 @@ import type { TankPose } from './tankState';
 import { TACTICAL_COLORS } from './visualStyle';
 
 type ProjectileSystemProps = {
+  disabled?: boolean;
   onResolution?: (resolution: ProjectileResolution) => void;
   poseRef: MutableRefObject<TankPose>;
   targetPoseRef?: MutableRefObject<TankPose>;
@@ -31,14 +32,19 @@ type ActiveProjectile = {
 const PROJECTILE_SPEED = 8.5;
 const FIRE_COOLDOWN_SECONDS = 0.55;
 
-export function ProjectileSystem({ onResolution, poseRef, targetPoseRef }: ProjectileSystemProps) {
+export function ProjectileSystem({
+  disabled = false,
+  onResolution,
+  poseRef,
+  targetPoseRef,
+}: ProjectileSystemProps) {
   const [projectiles, setProjectiles] = useState<ActiveProjectile[]>([]);
   const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
   const nextId = useRef(1);
   const cooldown = useRef(0);
 
   const fireProjectile = useCallback(() => {
-    if (cooldown.current > 0) {
+    if (disabled || cooldown.current > 0) {
       return;
     }
 
@@ -64,7 +70,7 @@ export function ProjectileSystem({ onResolution, poseRef, targetPoseRef }: Proje
       },
     ]);
     nextId.current += 1;
-  }, [onResolution, poseRef, targetPoseRef]);
+  }, [disabled, onResolution, poseRef, targetPoseRef]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -121,7 +127,7 @@ export function ProjectileSystem({ onResolution, poseRef, targetPoseRef }: Proje
         <ProjectileVisual key={projectile.id} projectile={projectile} />
       ))}
       {lastResolution ? <ShotResult resolution={lastResolution} /> : null}
-      <FireControl onFire={fireProjectile} />
+      <FireControl disabled={disabled} onFire={fireProjectile} />
     </>
   );
 }
@@ -170,10 +176,10 @@ function ShotResult({ resolution }: { resolution: ProjectileResolution }) {
   );
 }
 
-function FireControl({ onFire }: { onFire: () => void }) {
+function FireControl({ disabled, onFire }: { disabled: boolean; onFire: () => void }) {
   return (
     <Html position={[-3.9, 2.25, 3.25]} transform occlude={false}>
-      <button className="fire-control" type="button" onClick={onFire}>
+      <button className="fire-control" type="button" disabled={disabled} onClick={onFire}>
         Fire
       </button>
     </Html>
