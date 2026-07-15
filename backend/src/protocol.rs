@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use backend::matchmaking::{MatchmakingJoinRequest, MatchmakingResponse};
 use backend::mission_progress::{MissionProgressEntry, MissionProgressUpsert};
 use backend::users::UserProfile;
 
@@ -76,3 +77,6 @@ pub struct MissionProgressUpdateResponse {
 }
 
 pub type MissionProgressUpdatePayload = MissionProgressUpsert;
+
+pub type MatchmakingJoinPayload = MatchmakingJoinRequest;
+pub type MatchmakingQueueResponse = MatchmakingResponse;
