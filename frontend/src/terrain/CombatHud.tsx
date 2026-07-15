@@ -17,6 +17,7 @@ type CombatHudProps = {
   health: number;
   lastResolution: ProjectileResolution | null;
   poseRef: MutableRefObject<TankPose>;
+  targetPoseRef?: MutableRefObject<TankPose>;
 };
 
 type CoverState = {
@@ -33,16 +34,16 @@ type HudState = {
 
 const COVER_MARGIN = 0.35;
 
-export function CombatHud({ health, lastResolution, poseRef }: CombatHudProps) {
+export function CombatHud({ health, lastResolution, poseRef, targetPoseRef }: CombatHudProps) {
   const updateTimer = useRef(0);
-  const [state, setState] = useState(() => readHudState(poseRef.current));
+  const [state, setState] = useState(() => readHudState(poseRef.current, targetPoseRef?.current));
 
   useFrame((_, delta) => {
     updateTimer.current += delta;
 
     if (updateTimer.current >= 0.12) {
       updateTimer.current = 0;
-      setState(readHudState(poseRef.current));
+      setState(readHudState(poseRef.current, targetPoseRef?.current));
     }
   });
 
@@ -82,24 +83,25 @@ export function CombatHud({ health, lastResolution, poseRef }: CombatHudProps) {
   );
 }
 
-function readHudState(pose: TankPose): HudState {
+function readHudState(pose: TankPose, targetPose?: TankPose): HudState {
+  const targetPosition = targetPose?.position ?? DEFAULT_SIGHT_END;
   const armor = calculateArmorAngle({
     hullHeading: pose.heading,
-    incomingFireOrigin: DEFAULT_SIGHT_END,
+    incomingFireOrigin: targetPosition,
     tankPosition: pose.position,
     turretHeading: pose.turretHeading,
   });
 
   return {
     armor,
-    cover: readCoverState(pose),
+    cover: readCoverState(pose, targetPosition),
     damage: calculateDamageMitigation(armor, BASE_SHELL_DAMAGE),
   };
 }
 
-function readCoverState(pose: TankPose): CoverState {
+function readCoverState(pose: TankPose, targetPosition = DEFAULT_SIGHT_END): CoverState {
   const muzzle = projectileMuzzlePosition(pose);
-  const path = evaluateProjectilePath(muzzle, DEFAULT_SIGHT_END, 0.08);
+  const path = evaluateProjectilePath(muzzle, targetPosition, 0.08);
 
   if (!path.clear && path.hit && path.hit.distance < path.distance - COVER_MARGIN) {
     return {
@@ -109,7 +111,7 @@ function readCoverState(pose: TankPose): CoverState {
     };
   }
 
-  const targetHeading = bearingToPoint(pose.position, DEFAULT_SIGHT_END);
+  const targetHeading = bearingToPoint(pose.position, targetPosition);
 
   return {
     detail: `Open lane ${Math.round((targetHeading * 180) / Math.PI)}°`,

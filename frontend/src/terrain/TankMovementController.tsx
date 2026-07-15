@@ -3,9 +3,11 @@ import { Html } from '@react-three/drei';
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BufferGeometry, Group, Line, LineBasicMaterial, Mesh, Vector3 } from 'three';
 
+import { AiOpponentController } from './AiOpponentController';
 import { CombatHud } from './CombatHud';
 import { ProjectileSystem } from './ProjectileSystem';
 import { BoxSilhouette, CylinderSilhouette } from './Silhouette';
+import { createInitialAiPose } from './aiBehavior';
 import {
   bearingToPoint,
   calculateArmorAngle,
@@ -36,12 +38,14 @@ const REVERSE_SPEED = 1.35;
 const TURN_SPEED = 1.85;
 const TURRET_TURN_SPEED = 2.8;
 const TERRAIN_MARGIN = 0.85;
+const ACTIVE_MISSION_INDEX = 3;
 
 export function TankMovementController({ poseRef }: TankMovementControllerProps) {
   const groupRef = useRef<Group>(null);
   const turretRef = useRef<Group>(null);
   const driveInput = useKeyboardDrive();
   const tankPose = useRef(createInitialTankPose());
+  const aiPoseRef = useRef<TankPose>(createInitialAiPose());
   const [targetHealth, setTargetHealth] = useState(100);
   const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
   const handleProjectileResolution = useCallback((resolution: ProjectileResolution) => {
@@ -77,9 +81,23 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         <TankModel turretRef={turretRef} />
       </group>
       <TankSightline poseRef={poseRef} />
-      <ProjectileSystem onResolution={handleProjectileResolution} poseRef={poseRef} />
+      <AiOpponentController
+        aiPoseRef={aiPoseRef}
+        missionIndex={ACTIVE_MISSION_INDEX}
+        playerPoseRef={poseRef}
+      />
+      <ProjectileSystem
+        onResolution={handleProjectileResolution}
+        poseRef={poseRef}
+        targetPoseRef={aiPoseRef}
+      />
       <ArmorAngleReadout poseRef={poseRef} />
-      <CombatHud health={targetHealth} lastResolution={lastResolution} poseRef={poseRef} />
+      <CombatHud
+        health={targetHealth}
+        lastResolution={lastResolution}
+        poseRef={poseRef}
+        targetPoseRef={aiPoseRef}
+      />
     </>
   );
 }
