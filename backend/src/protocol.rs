@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use backend::mission_progress::{MissionProgressEntry, MissionProgressUpsert};
 use backend::users::UserProfile;
 
 #[derive(Debug, Serialize)]
@@ -63,3 +64,15 @@ pub struct AssetResponse {
     pub content_type: &'static str,
     pub url: String,
 }
+
+#[derive(Debug, Serialize)]
+pub struct MissionProgressListResponse {
+    pub missions: Vec<MissionProgressEntry>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MissionProgressUpdateResponse {
+    pub mission: MissionProgressEntry,
+}
+
+pub type MissionProgressUpdatePayload = MissionProgressUpsert;

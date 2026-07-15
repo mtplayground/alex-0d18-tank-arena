@@ -49,7 +49,8 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
   const aiPoseRef = useRef<TankPose>(createInitialAiPose());
   const missionRunner = useMissionRunner();
   const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
-  const { activeMission, applyResolution, sequence, status, targetIntegrity } = missionRunner;
+  const { activeMission, applyResolution, sequence, status, syncStatus, targetIntegrity } =
+    missionRunner;
   const handleProjectileResolution = useCallback(
     (resolution: ProjectileResolution) => {
       setLastResolution(resolution);
@@ -106,7 +107,12 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         poseRef={poseRef}
         targetPoseRef={aiPoseRef}
       />
-      <MissionPanel mission={activeMission} sequence={sequence} status={status} />
+      <MissionPanel
+        mission={activeMission}
+        sequence={sequence}
+        status={status}
+        syncStatus={syncStatus}
+      />
     </>
   );
 }

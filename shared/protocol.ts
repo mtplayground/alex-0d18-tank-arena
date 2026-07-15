@@ -42,3 +42,32 @@ export type AssetManifestResponse = {
   assets: AssetResponse[];
   expires_in_seconds: number;
 };
+
+export type MissionProgressStatus = 'not_started' | 'in_progress' | 'completed' | 'failed';
+
+export type MissionProgressEntry = {
+  mission_key: string;
+  status: MissionProgressStatus;
+  current_step: number;
+  attempts: number;
+  best_score: number | null;
+  progress: Record<string, unknown>;
+  completed_at: string | null;
+  updated_at: string;
+};
+
+export type MissionProgressListResponse = {
+  missions: MissionProgressEntry[];
+};
+
+export type MissionProgressUpdateResponse = {
+  mission: MissionProgressEntry;
+};
+
+export type MissionProgressUpdatePayload = {
+  status: MissionProgressStatus;
+  current_step: number;
+  attempts: number;
+  best_score: number | null;
+  progress: Record<string, unknown>;
+};
