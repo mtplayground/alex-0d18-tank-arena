@@ -64,6 +64,28 @@ a {
   height: 100%;
 }
 
+.armor-angle-readout {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 3px 8px;
+  min-width: 132px;
+  border: 1px solid rgb(23 35 45 / 48%);
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: #17232d;
+  background: rgb(248 243 216 / 90%);
+  box-shadow: 0 8px 18px rgb(23 35 45 / 18%);
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1.05;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.armor-angle-readout strong {
+  color: #a23b42;
+}
+
 .auth-panel,
 .dashboard-panel {
   display: flex;
