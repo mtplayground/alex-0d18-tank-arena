@@ -1,18 +1,26 @@
 use axum::{
-    extract::{Path, State},
+    extract::{
+        ws::{Message, WebSocket, WebSocketUpgrade},
+        Path, State,
+    },
     http::{header::HOST, HeaderMap, HeaderName, StatusCode},
     middleware::from_fn_with_state,
     response::{IntoResponse, Redirect},
     routing::{get, put},
     Extension, Json, Router,
 };
+use futures_util::{SinkExt, StreamExt};
+use serde_json::{json, Value};
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
-use tracing::error;
+use tracing::{error, info};
 
 use backend::auth::AuthClient;
 use backend::config::AppConfig;
 use backend::email::{EmailClient, EmailError};
+use backend::match_sessions::{
+    validate_match_id, MatchSessionError, MatchSessionRegistry, MatchSessionSubscription,
+};
 use backend::mission_progress::{
     list_mission_progress, upsert_mission_progress, MissionProgressError,
 };
@@ -48,6 +56,7 @@ pub fn router(
             "/api/mission-progress/:mission_key",
             put(mission_progress_upsert),
         )
+        .route("/api/ws/matches/:match_id", get(match_socket))
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 
     Router::new()
@@ -131,6 +140,20 @@ async fn mission_progress_upsert(
         upsert_mission_progress(&state.database, &user.profile.sub, &mission_key, payload).await?;
 
     Ok(Json(MissionProgressUpdateResponse { mission }))
+}
+
+async fn match_socket(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(match_id): Path<String>,
+    ws: WebSocketUpgrade,
+) -> Result<axum::response::Response, MatchSocketRouteError> {
+    validate_match_id(&match_id)?;
+
+    let registry = state.match_sessions.clone();
+    let user_sub = user.profile.sub.clone();
+
+    Ok(ws.on_upgrade(move |socket| handle_match_socket(socket, registry, match_id, user_sub)))
 }
 
 async fn password_reset_request(
@@ -218,6 +241,107 @@ async fn asset_redirect(
     Ok(Redirect::temporary(&url))
 }
 
+async fn handle_match_socket(
+    socket: WebSocket,
+    registry: MatchSessionRegistry,
+    match_id: String,
+    user_sub: String,
+) {
+    let subscription = match registry.subscribe(&match_id, &user_sub).await {
+        Ok(subscription) => subscription,
+        Err(error) => {
+            error!(?error, %match_id, %user_sub, "failed to join match socket session");
+            return;
+        }
+    };
+
+    info!(%match_id, %user_sub, "match socket connected");
+    run_match_socket(socket, subscription).await;
+
+    if let Err(error) = registry.disconnect(&match_id, &user_sub).await {
+        error!(?error, %match_id, %user_sub, "failed to clean up match socket session");
+    }
+
+    info!(%match_id, %user_sub, "match socket disconnected");
+}
+
+async fn run_match_socket(socket: WebSocket, subscription: MatchSessionSubscription) {
+    let match_id = subscription.match_id.clone();
+    let user_sub = subscription.user_sub.clone();
+    let channel_tx = subscription.sender.clone();
+    let connected_message = subscription.connected_message();
+    let mut channel_rx = subscription.receiver.resubscribe();
+    let (mut outbound, mut inbound) = socket.split();
+
+    if let Ok(message) = connected_message {
+        if outbound.send(Message::Text(message)).await.is_err() {
+            return;
+        }
+    }
+
+    let outbound_task = tokio::spawn(async move {
+        while let Ok(message) = channel_rx.recv().await {
+            if outbound.send(Message::Text(message)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    while let Some(message) = inbound.next().await {
+        match message {
+            Ok(Message::Text(text)) => {
+                if text.len() > MAX_MATCH_SOCKET_TEXT_BYTES {
+                    send_match_socket_error(&subscription, &channel_tx, "message too large");
+                    continue;
+                }
+
+                match subscription.player_message(client_socket_payload(&text)) {
+                    Ok(event) => {
+                        let _ = channel_tx.send(event);
+                    }
+                    Err(error) => {
+                        error!(?error, %match_id, %user_sub, "failed to encode match socket event");
+                    }
+                }
+            }
+            Ok(Message::Binary(_)) => {
+                send_match_socket_error(
+                    &subscription,
+                    &channel_tx,
+                    "binary messages are not supported",
+                );
+            }
+            Ok(Message::Close(_)) => break,
+            Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {}
+            Err(error) => {
+                error!(?error, %match_id, %user_sub, "match socket receive failed");
+                break;
+            }
+        }
+    }
+
+    outbound_task.abort();
+}
+
+fn client_socket_payload(text: &str) -> Value {
+    serde_json::from_str(text).unwrap_or_else(|_| json!({ "text": text }))
+}
+
+fn send_match_socket_error(
+    subscription: &MatchSessionSubscription,
+    sender: &tokio::sync::broadcast::Sender<String>,
+    reason: &'static str,
+) {
+    match subscription.error_message(reason) {
+        Ok(message) => {
+            let _ = sender.send(message);
+        }
+        Err(error) => {
+            error!(?error, reason, "failed to encode match socket error");
+        }
+    }
+}
+
 async fn not_found() -> impl IntoResponse {
     (
         StatusCode::NOT_FOUND,
@@ -274,6 +398,8 @@ fn password_reset_url(headers: &HeaderMap, config: &AppConfig, token: &str) -> S
     )
 }
 
+const MAX_MATCH_SOCKET_TEXT_BYTES: usize = 8 * 1024;
+
 #[derive(Debug)]
 enum AssetRouteError {
     NotFound,
@@ -323,6 +449,37 @@ enum PasswordResetRouteError {
 enum MissionProgressRouteError {
     InvalidRequest(&'static str),
     Database(sqlx::Error),
+}
+
+#[derive(Debug)]
+enum MatchSocketRouteError {
+    InvalidMatchId,
+}
+
+impl From<MatchSessionError> for MatchSocketRouteError {
+    fn from(error: MatchSessionError) -> Self {
+        match error {
+            MatchSessionError::InvalidMatchId => Self::InvalidMatchId,
+            MatchSessionError::Serialize(error) => {
+                error!(?error, "failed to prepare match socket response");
+                Self::InvalidMatchId
+            }
+        }
+    }
+}
+
+impl IntoResponse for MatchSocketRouteError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::InvalidMatchId => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "match id is invalid",
+                }),
+            )
+                .into_response(),
+        }
+    }
 }
 
 impl From<MissionProgressError> for MissionProgressRouteError {
