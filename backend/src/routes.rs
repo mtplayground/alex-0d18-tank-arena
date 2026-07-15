@@ -3,7 +3,7 @@ use axum::{
     http::{header::HOST, HeaderMap, HeaderName, StatusCode},
     middleware::from_fn_with_state,
     response::{IntoResponse, Redirect},
-    routing::get,
+    routing::{get, put},
     Extension, Json, Router,
 };
 use sqlx::PgPool;
@@ -13,6 +13,9 @@ use tracing::error;
 use backend::auth::AuthClient;
 use backend::config::AppConfig;
 use backend::email::{EmailClient, EmailError};
+use backend::mission_progress::{
+    list_mission_progress, upsert_mission_progress, MissionProgressError,
+};
 use backend::storage::{AssetDefinition, StorageClient, StorageError, GAME_ASSETS};
 use backend::users::{
     confirm_password_reset, create_password_reset_request, new_password_reset_token,
@@ -23,7 +26,8 @@ use crate::{
     auth_middleware::{require_auth, AuthenticatedUser},
     protocol::{
         AssetManifestResponse, AssetResponse, AuthSessionResponse, ErrorResponse, HealthResponse,
-        MessageResponse, PasswordResetConfirmPayload, PasswordResetRequestPayload,
+        MessageResponse, MissionProgressListResponse, MissionProgressUpdatePayload,
+        MissionProgressUpdateResponse, PasswordResetConfirmPayload, PasswordResetRequestPayload,
         RenderingStatus, RuntimeStatus,
     },
     state::AppState,
@@ -39,6 +43,11 @@ pub fn router(
     let state = AppState::new(config, storage, database, auth, email);
     let protected_routes = Router::new()
         .route("/api/auth/me", get(auth_me))
+        .route("/api/mission-progress", get(mission_progress_list))
+        .route(
+            "/api/mission-progress/:mission_key",
+            put(mission_progress_upsert),
+        )
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 
     Router::new()
@@ -101,6 +110,27 @@ async fn auth_me(Extension(user): Extension<AuthenticatedUser>) -> Json<AuthSess
         registered: user.registered,
         message,
     })
+}
+
+async fn mission_progress_list(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+) -> Result<Json<MissionProgressListResponse>, MissionProgressRouteError> {
+    let missions = list_mission_progress(&state.database, &user.profile.sub).await?;
+
+    Ok(Json(MissionProgressListResponse { missions }))
+}
+
+async fn mission_progress_upsert(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(mission_key): Path<String>,
+    Json(payload): Json<MissionProgressUpdatePayload>,
+) -> Result<Json<MissionProgressUpdateResponse>, MissionProgressRouteError> {
+    let mission =
+        upsert_mission_progress(&state.database, &user.profile.sub, &mission_key, payload).await?;
+
+    Ok(Json(MissionProgressUpdateResponse { mission }))
 }
 
 async fn password_reset_request(
@@ -287,6 +317,57 @@ enum PasswordResetRouteError {
     Password(PasswordError),
     Database(sqlx::Error),
     Email(EmailError),
+}
+
+#[derive(Debug)]
+enum MissionProgressRouteError {
+    InvalidRequest(&'static str),
+    Database(sqlx::Error),
+}
+
+impl From<MissionProgressError> for MissionProgressRouteError {
+    fn from(error: MissionProgressError) -> Self {
+        match error {
+            MissionProgressError::InvalidMissionKey => {
+                Self::InvalidRequest("mission key is required")
+            }
+            MissionProgressError::InvalidStatus => {
+                Self::InvalidRequest("mission progress status is invalid")
+            }
+            MissionProgressError::InvalidCurrentStep => {
+                Self::InvalidRequest("current step must be nonnegative")
+            }
+            MissionProgressError::InvalidAttempts => {
+                Self::InvalidRequest("attempts must be nonnegative")
+            }
+            MissionProgressError::InvalidBestScore => {
+                Self::InvalidRequest("best score must be nonnegative")
+            }
+            MissionProgressError::InvalidProgress => {
+                Self::InvalidRequest("progress must be a JSON object")
+            }
+            MissionProgressError::Database(error) => Self::Database(error),
+        }
+    }
+}
+
+impl IntoResponse for MissionProgressRouteError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::InvalidRequest(error) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error }))
+                .into_response(),
+            Self::Database(error) => {
+                error!(?error, "mission progress database operation failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "mission progress unavailable",
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
 }
 
 impl From<sqlx::Error> for PasswordResetRouteError {

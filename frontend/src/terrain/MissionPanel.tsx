@@ -1,16 +1,18 @@
 import { Html } from '@react-three/drei';
 
 import type { MissionDefinition } from './missions';
-import type { MissionSequenceItem, MissionStatus } from './missionRunner';
+import type { MissionSequenceItem, MissionStatus, MissionSyncStatus } from './missionRunner';
 
 export function MissionPanel({
   mission,
   sequence,
   status,
+  syncStatus,
 }: {
   mission: MissionDefinition;
   sequence: MissionSequenceItem[];
   status: MissionStatus;
+  syncStatus: MissionSyncStatus;
 }) {
   return (
     <Html fullscreen prepend className="mission-panel-shell">
@@ -23,6 +25,7 @@ export function MissionPanel({
         <div className="mission-meta">
           <span>{mission.tier}</span>
           <span>{statusLabel(status)}</span>
+          <span>{syncStatusLabel(syncStatus)}</span>
         </div>
         <ol className="mission-sequence" aria-label="Mission progress">
           {sequence.map((item) => (
@@ -44,5 +47,20 @@ function statusLabel(status: MissionStatus): string {
       return 'secured';
     case 'campaign-complete':
       return 'complete';
+  }
+}
+
+function syncStatusLabel(status: MissionSyncStatus): string {
+  switch (status) {
+    case 'error':
+      return 'save pending';
+    case 'loading':
+      return 'loading';
+    case 'local':
+      return 'local';
+    case 'saved':
+      return 'saved';
+    case 'saving':
+      return 'saving';
   }
 }
