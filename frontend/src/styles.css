@@ -703,6 +703,165 @@ h1 {
   display: flex;
 }
 
+.duel-panel {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid #d7e1e4;
+  padding-top: 16px;
+}
+
+.duel-header,
+.match-history header,
+.duel-results-screen header {
+  display: flex;
+  gap: 12px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.duel-header h2 {
+  margin: 3px 0 0;
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.duel-header strong,
+.match-history header strong,
+.duel-results-screen header strong {
+  border: 1px solid rgb(15 94 113 / 24%);
+  border-radius: 999px;
+  padding: 6px 9px;
+  color: #0f5e71;
+  background: #e5f1f4;
+  font-size: 0.76rem;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.duel-section,
+.match-history {
+  display: grid;
+  gap: 12px;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid #b8c7ce;
+  border-radius: 6px;
+  background: #edf4f6;
+}
+
+.segmented-control button {
+  min-height: 40px;
+  border: 0;
+  color: #0f5e71;
+  background: transparent;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.segmented-control button.selected {
+  color: #fff;
+  background: #0f5e71;
+}
+
+.queue-status-card,
+.duel-status-tile,
+.live-player-card,
+.history-list article {
+  display: grid;
+  gap: 4px;
+  min-height: 66px;
+  border: 1px solid #d1dce0;
+  border-radius: 8px;
+  padding: 10px 11px;
+  background: #fbfcfd;
+}
+
+.queue-status-card span,
+.duel-status-tile span,
+.live-player-card span,
+.history-list span,
+.match-history header span,
+.duel-results-screen header span {
+  color: #5b6872;
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.queue-status-card strong,
+.duel-status-tile strong,
+.live-player-card strong,
+.history-list strong {
+  overflow-wrap: anywhere;
+  color: #17232d;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.duel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.duel-actions button {
+  flex: 1 1 112px;
+}
+
+.live-match-meta,
+.live-stat-grid,
+.live-player-grid,
+.history-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.live-player-grid,
+.history-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.live-player-card small,
+.history-list small,
+.history-list p {
+  margin: 0;
+  color: #51616d;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.event-log {
+  display: grid;
+  gap: 6px;
+  max-height: 130px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.event-log li {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  border-bottom: 1px solid #e3eaed;
+  padding: 4px 0;
+  color: #33424c;
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.duel-results-screen .results-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -721,5 +880,13 @@ h1 {
 
   .auth-panel h1 {
     max-width: 14ch;
+  }
+
+  .live-match-meta,
+  .live-stat-grid,
+  .live-player-grid,
+  .history-list,
+  .duel-results-screen .results-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 
 import { useAuth } from './auth/useAuth';
 import { ScenePreview } from './components/ScenePreview';
+import { MultiplayerDuelPanel } from './multiplayer/MultiplayerDuelPanel';
 
 type AuthMode = 'login' | 'register';
 
@@ -149,6 +150,8 @@ function AuthenticatedHome() {
               Refresh session
             </button>
           </div>
+
+          <MultiplayerDuelPanel user={auth.user} />
         </section>
       </section>
     </main>
