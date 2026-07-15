@@ -66,6 +66,26 @@ impl IntoResponse for AuthMiddlewareError {
                 }),
             )
                 .into_response(),
+            Self::Auth(AuthError::JwksFetch(error)) => {
+                error!(%error, "failed to fetch auth signing keys");
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(ErrorResponse {
+                        error: "auth service unavailable",
+                    }),
+                )
+                    .into_response()
+            }
+            Self::Auth(AuthError::SigningKey(error)) => {
+                error!(%error, "failed to parse auth signing key");
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(ErrorResponse {
+                        error: "auth service unavailable",
+                    }),
+                )
+                    .into_response()
+            }
             Self::Auth(error) => {
                 error!(?error, "failed to verify auth session");
                 (

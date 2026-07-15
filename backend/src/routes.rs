@@ -12,7 +12,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use backend::auth::AuthClient;
 use backend::config::AppConfig;
@@ -361,16 +361,32 @@ async fn run_match_socket(
     let mut channel_rx = subscription.receiver.resubscribe();
     let (mut outbound, mut inbound) = socket.split();
 
-    if let Ok(message) = connected_message {
-        if outbound.send(Message::Text(message)).await.is_err() {
+    match connected_message {
+        Ok(message) => {
+            if let Err(error) = outbound.send(Message::Text(message)).await {
+                warn!(?error, %match_id, %user_sub, "failed to send match socket connected message");
+                return;
+            }
+        }
+        Err(error) => {
+            error!(?error, %match_id, %user_sub, "failed to encode match socket connected message");
             return;
         }
     }
 
     let outbound_task = tokio::spawn(async move {
-        while let Ok(message) = channel_rx.recv().await {
-            if outbound.send(Message::Text(message)).await.is_err() {
-                break;
+        loop {
+            match channel_rx.recv().await {
+                Ok(message) => {
+                    if let Err(error) = outbound.send(Message::Text(message)).await {
+                        warn!(?error, "failed to forward match socket broadcast");
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    warn!(skipped, "match socket broadcast receiver lagged");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
     });
@@ -418,7 +434,9 @@ fn send_match_socket_error(
 ) {
     match subscription.error_message(reason) {
         Ok(message) => {
-            let _ = sender.send(message);
+            if let Err(error) = sender.send(message) {
+                warn!(?error, reason, "failed to publish match socket error");
+            }
         }
         Err(error) => {
             error!(?error, reason, "failed to encode match socket error");
