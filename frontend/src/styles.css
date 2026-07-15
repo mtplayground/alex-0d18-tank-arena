@@ -86,6 +86,41 @@ a {
   color: #a23b42;
 }
 
+.shot-result-readout {
+  min-width: 112px;
+  border: 1px solid rgb(23 35 45 / 45%);
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: #17232d;
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 8px 18px rgb(23 35 45 / 18%);
+  font-size: 0.74rem;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.fire-control {
+  border: 1px solid rgb(23 35 45 / 48%);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: #fff;
+  background: #b8381f;
+  box-shadow: 0 8px 18px rgb(23 35 45 / 18%);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.fire-control:hover {
+  background: #942a18;
+}
+
 .auth-panel,
 .dashboard-panel {
   display: flex;

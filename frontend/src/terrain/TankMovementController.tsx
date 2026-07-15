@@ -3,6 +3,7 @@ import { Html } from '@react-three/drei';
 import { type MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
 import { BufferGeometry, Group, Line, LineBasicMaterial, Mesh, Vector3 } from 'three';
 
+import { ProjectileSystem } from './ProjectileSystem';
 import { BoxSilhouette, CylinderSilhouette } from './Silhouette';
 import {
   bearingToPoint,
@@ -14,6 +15,7 @@ import {
 import { BATTLEFIELD_HALF_SIZE, terrainHeight, type Vec3 } from './battlefield';
 import { BASE_SHELL_DAMAGE, calculateDamageMitigation, type DamageMitigation } from './damageModel';
 import { DEFAULT_SIGHT_END, evaluateProjectilePath } from './occlusion';
+import { projectileMuzzlePosition } from './projectileModel';
 import { TANK_EYE_HEIGHT, createInitialTankPose, type TankPose } from './tankState';
 import { TACTICAL_COLORS } from './visualStyle';
 
@@ -65,6 +67,7 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         <TankModel turretRef={turretRef} />
       </group>
       <TankSightline poseRef={poseRef} />
+      <ProjectileSystem poseRef={poseRef} />
       <ArmorAngleReadout poseRef={poseRef} />
     </>
   );
@@ -153,7 +156,7 @@ function TankSightline({ poseRef }: TankMovementControllerProps) {
 
   useFrame(() => {
     const pose = poseRef.current;
-    const muzzle = tankMuzzlePosition(pose);
+    const muzzle = projectileMuzzlePosition(pose);
     const result = evaluateProjectilePath(muzzle, DEFAULT_SIGHT_END, 0.08);
     const end = result.hit?.point ?? DEFAULT_SIGHT_END;
 
@@ -315,12 +318,6 @@ function readArmorState(pose: TankPose): { armor: ArmorAngleReading; damage: Dam
     armor,
     damage: calculateDamageMitigation(armor, BASE_SHELL_DAMAGE),
   };
-}
-
-function tankMuzzlePosition({ position, turretHeading }: TankPose): Vec3 {
-  const forward = headingToForward(turretHeading);
-
-  return [position[0] + forward[0] * 1.24, position[1] + 0.08, position[2] + forward[1] * 1.24];
 }
 
 function headingToForward(heading: number): [number, number] {
