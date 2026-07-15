@@ -8,12 +8,14 @@
   "scripts": {
     "build": "npm run build --workspace frontend && cargo build --workspace",
     "dev": "npm run dev --workspace frontend",
+    "e2e": "playwright test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "npm run lint --workspace frontend && cargo check --workspace --all-targets",
     "start:backend": "cargo run -p backend"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "prettier": "^3.3.3"
   }
 }
