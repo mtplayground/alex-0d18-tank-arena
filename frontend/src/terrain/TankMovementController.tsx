@@ -5,6 +5,7 @@ import { BufferGeometry, Group, Line, LineBasicMaterial, Mesh, Vector3 } from 't
 
 import { AiOpponentController } from './AiOpponentController';
 import { CombatHud } from './CombatHud';
+import { MissionPanel } from './MissionPanel';
 import { ProjectileSystem } from './ProjectileSystem';
 import { BoxSilhouette, CylinderSilhouette } from './Silhouette';
 import { createInitialAiPose } from './aiBehavior';
@@ -20,6 +21,7 @@ import { BASE_SHELL_DAMAGE, calculateDamageMitigation, type DamageMitigation } f
 import { DEFAULT_SIGHT_END, evaluateProjectilePath } from './occlusion';
 import { projectileMuzzlePosition, type ProjectileResolution } from './projectileModel';
 import { TANK_EYE_HEIGHT, createInitialTankPose, type TankPose } from './tankState';
+import { useMissionRunner } from './missionRunner';
 import { TACTICAL_COLORS } from './visualStyle';
 
 type TankMovementControllerProps = {
@@ -38,7 +40,6 @@ const REVERSE_SPEED = 1.35;
 const TURN_SPEED = 1.85;
 const TURRET_TURN_SPEED = 2.8;
 const TERRAIN_MARGIN = 0.85;
-const ACTIVE_MISSION_INDEX = 3;
 
 export function TankMovementController({ poseRef }: TankMovementControllerProps) {
   const groupRef = useRef<Group>(null);
@@ -46,15 +47,21 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
   const driveInput = useKeyboardDrive();
   const tankPose = useRef(createInitialTankPose());
   const aiPoseRef = useRef<TankPose>(createInitialAiPose());
-  const [targetHealth, setTargetHealth] = useState(100);
+  const missionRunner = useMissionRunner();
   const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
-  const handleProjectileResolution = useCallback((resolution: ProjectileResolution) => {
-    setLastResolution(resolution);
+  const { activeMission, applyResolution, sequence, status, targetIntegrity } = missionRunner;
+  const handleProjectileResolution = useCallback(
+    (resolution: ProjectileResolution) => {
+      setLastResolution(resolution);
+      applyResolution(resolution);
+    },
+    [applyResolution],
+  );
 
-    if (resolution.kind === 'target-hit') {
-      setTargetHealth((current) => Math.max(0, current - resolution.damage.finalDamage));
-    }
-  }, []);
+  useEffect(() => {
+    setLastResolution(null);
+    aiPoseRef.current = createInitialAiPose();
+  }, [activeMission.id]);
 
   useFrame((_, delta) => {
     const nextPose = integrateTankPose(tankPose.current, driveInput.current, delta);
@@ -80,10 +87,11 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
       >
         <TankModel turretRef={turretRef} />
       </group>
-      <TankSightline poseRef={poseRef} />
+      <TankSightline poseRef={poseRef} targetPoseRef={aiPoseRef} />
       <AiOpponentController
+        key={activeMission.id}
         aiPoseRef={aiPoseRef}
-        missionIndex={ACTIVE_MISSION_INDEX}
+        missionIndex={activeMission.aiMissionIndex}
         playerPoseRef={poseRef}
       />
       <ProjectileSystem
@@ -91,13 +99,14 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         poseRef={poseRef}
         targetPoseRef={aiPoseRef}
       />
-      <ArmorAngleReadout poseRef={poseRef} />
+      <ArmorAngleReadout poseRef={poseRef} targetPoseRef={aiPoseRef} />
       <CombatHud
-        health={targetHealth}
+        health={targetIntegrity}
         lastResolution={lastResolution}
         poseRef={poseRef}
         targetPoseRef={aiPoseRef}
       />
+      <MissionPanel mission={activeMission} sequence={sequence} status={status} />
     </>
   );
 }
@@ -161,7 +170,10 @@ function TankModel({ turretRef }: { turretRef: MutableRefObject<Group | null> })
   );
 }
 
-function TankSightline({ poseRef }: TankMovementControllerProps) {
+function TankSightline({
+  poseRef,
+  targetPoseRef,
+}: TankMovementControllerProps & { targetPoseRef?: MutableRefObject<TankPose> }) {
   const hitMarkerRef = useRef<Mesh>(null);
   const geometry = useMemo(() => new BufferGeometry(), []);
   const material = useMemo(
@@ -185,9 +197,10 @@ function TankSightline({ poseRef }: TankMovementControllerProps) {
 
   useFrame(() => {
     const pose = poseRef.current;
+    const targetPosition = targetPoseRef?.current.position ?? DEFAULT_SIGHT_END;
     const muzzle = projectileMuzzlePosition(pose);
-    const result = evaluateProjectilePath(muzzle, DEFAULT_SIGHT_END, 0.08);
-    const end = result.hit?.point ?? DEFAULT_SIGHT_END;
+    const result = evaluateProjectilePath(muzzle, targetPosition, 0.08);
+    const end = result.hit?.point ?? targetPosition;
 
     geometry.setFromPoints([new Vector3(...muzzle), new Vector3(...end)]);
     material.color.set(result.clear ? TACTICAL_COLORS.sightClear : TACTICAL_COLORS.sightBlocked);
@@ -215,10 +228,15 @@ function TankSightline({ poseRef }: TankMovementControllerProps) {
   );
 }
 
-function ArmorAngleReadout({ poseRef }: TankMovementControllerProps) {
+function ArmorAngleReadout({
+  poseRef,
+  targetPoseRef,
+}: TankMovementControllerProps & { targetPoseRef?: MutableRefObject<TankPose> }) {
   const groupRef = useRef<Group>(null);
   const updateTimer = useRef(0);
-  const [reading, setReading] = useState(() => readArmorState(poseRef.current));
+  const [reading, setReading] = useState(() =>
+    readArmorState(poseRef.current, targetPoseRef?.current),
+  );
 
   useFrame((_, delta) => {
     const pose = poseRef.current;
@@ -230,7 +248,7 @@ function ArmorAngleReadout({ poseRef }: TankMovementControllerProps) {
     updateTimer.current += delta;
     if (updateTimer.current >= 0.12) {
       updateTimer.current = 0;
-      setReading(readArmorState(pose));
+      setReading(readArmorState(pose, targetPoseRef?.current));
     }
   });
 
@@ -335,10 +353,14 @@ function integrateTankPose(pose: TankPose, input: DriveInput, delta: number): Ta
   };
 }
 
-function readArmorState(pose: TankPose): { armor: ArmorAngleReading; damage: DamageMitigation } {
+function readArmorState(
+  pose: TankPose,
+  targetPose?: TankPose,
+): { armor: ArmorAngleReading; damage: DamageMitigation } {
+  const targetPosition = targetPose?.position ?? DEFAULT_SIGHT_END;
   const armor = calculateArmorAngle({
     hullHeading: pose.heading,
-    incomingFireOrigin: DEFAULT_SIGHT_END,
+    incomingFireOrigin: targetPosition,
     tankPosition: pose.position,
     turretHeading: pose.turretHeading,
   });
