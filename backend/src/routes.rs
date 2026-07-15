@@ -6,7 +6,7 @@ use axum::{
     http::{header::HOST, HeaderMap, HeaderName, StatusCode},
     middleware::from_fn_with_state,
     response::{IntoResponse, Redirect},
-    routing::{get, put},
+    routing::{get, post, put},
     Extension, Json, Router,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -17,6 +17,9 @@ use tracing::{error, info};
 use backend::auth::AuthClient;
 use backend::config::AppConfig;
 use backend::email::{EmailClient, EmailError};
+use backend::match_results::{
+    finalize_match_results, list_match_results, MatchResultsError,
+};
 use backend::match_sessions::{
     validate_match_id, MatchSessionError, MatchSessionRegistry, MatchSessionSubscription,
 };
@@ -35,6 +38,7 @@ use crate::{
     protocol::{
         AssetManifestResponse, AssetResponse, AuthSessionResponse, ErrorResponse, HealthResponse,
         MatchmakingJoinPayload, MatchmakingQueueResponse, MessageResponse,
+        MatchResultsFinalizePayload, MatchResultsFinalizeResponseBody, MatchResultsListResponse,
         MissionProgressListResponse, MissionProgressUpdatePayload, MissionProgressUpdateResponse,
         PasswordResetConfirmPayload, PasswordResetRequestPayload, RenderingStatus, RuntimeStatus,
     },
@@ -56,6 +60,11 @@ pub fn router(
             get(matchmaking_status)
                 .post(matchmaking_join)
                 .delete(matchmaking_cancel),
+        )
+        .route("/api/matches/results", get(match_results_list))
+        .route(
+            "/api/matches/:match_id/results",
+            post(match_results_finalize),
         )
         .route("/api/mission-progress", get(mission_progress_list))
         .route(
@@ -152,6 +161,29 @@ async fn matchmaking_cancel(
     Extension(user): Extension<AuthenticatedUser>,
 ) -> Json<MatchmakingQueueResponse> {
     Json(state.matchmaking.cancel(&user.profile.sub).await)
+}
+
+async fn match_results_list(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+) -> Result<Json<MatchResultsListResponse>, MatchResultsRouteError> {
+    let (results, summary) = list_match_results(&state.database, &user.profile.sub, None).await?;
+
+    Ok(Json(MatchResultsListResponse { results, summary }))
+}
+
+async fn match_results_finalize(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Path(match_id): Path<String>,
+    Json(payload): Json<MatchResultsFinalizePayload>,
+) -> Result<Json<MatchResultsFinalizeResponseBody>, MatchResultsRouteError> {
+    validate_match_id(&match_id)?;
+
+    let response =
+        finalize_match_results(&state.database, &match_id, &user.profile.sub, payload).await?;
+
+    Ok(Json(response))
 }
 
 async fn mission_progress_list(
@@ -504,6 +536,15 @@ enum MissionProgressRouteError {
 }
 
 #[derive(Debug)]
+enum MatchResultsRouteError {
+    AlreadyRecorded,
+    Database(sqlx::Error),
+    Forbidden,
+    InvalidRequest(&'static str),
+    NotFound,
+}
+
+#[derive(Debug)]
 enum MatchSocketRouteError {
     Database(sqlx::Error),
     Forbidden,
@@ -536,6 +577,78 @@ impl IntoResponse for MatchmakingRouteError {
                 )
                     .into_response()
             }
+        }
+    }
+}
+
+impl From<MatchResultsError> for MatchResultsRouteError {
+    fn from(error: MatchResultsError) -> Self {
+        match error {
+            MatchResultsError::AlreadyRecorded => Self::AlreadyRecorded,
+            MatchResultsError::Database(error) => Self::Database(error),
+            MatchResultsError::Forbidden => Self::Forbidden,
+            MatchResultsError::InvalidDuration => {
+                Self::InvalidRequest("duration must be nonnegative")
+            }
+            MatchResultsError::InvalidParticipant => {
+                Self::InvalidRequest("match participants are invalid")
+            }
+            MatchResultsError::InvalidResult => Self::InvalidRequest("match result is invalid"),
+            MatchResultsError::InvalidStats => Self::InvalidRequest("match stats are invalid"),
+            MatchResultsError::NotFound => Self::NotFound,
+        }
+    }
+}
+
+impl From<MatchSessionError> for MatchResultsRouteError {
+    fn from(error: MatchSessionError) -> Self {
+        match error {
+            MatchSessionError::InvalidMatchId => Self::InvalidRequest("match id is invalid"),
+            MatchSessionError::Serialize(error) => {
+                error!(?error, "failed to prepare match results response");
+                Self::InvalidRequest("match results unavailable")
+            }
+        }
+    }
+}
+
+impl IntoResponse for MatchResultsRouteError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::AlreadyRecorded => (
+                StatusCode::CONFLICT,
+                Json(ErrorResponse {
+                    error: "match results are already recorded",
+                }),
+            )
+                .into_response(),
+            Self::Database(error) => {
+                error!(?error, "match results database operation failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "match results unavailable",
+                    }),
+                )
+                    .into_response()
+            }
+            Self::Forbidden => (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "match access denied",
+                }),
+            )
+                .into_response(),
+            Self::InvalidRequest(error) => {
+                (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })).into_response()
+            }
+            Self::NotFound => (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "match not found",
+                }),
+            )
+                .into_response(),
         }
     }
 }

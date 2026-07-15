@@ -2,6 +2,7 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod email;
+pub mod match_results;
 pub mod match_sessions;
 pub mod matchmaking;
 pub mod mission_progress;
