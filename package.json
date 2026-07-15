@@ -7,6 +7,8 @@
   ],
   "scripts": {
     "build": "npm run build --workspace frontend && cargo build --workspace",
+    "build:release": "npm run build --workspace frontend && cargo build --workspace --release",
+    "deploy:bundle": "scripts/deploy-build.sh",
     "dev": "npm run dev --workspace frontend",
     "e2e": "playwright test",
     "format": "prettier --write .",
