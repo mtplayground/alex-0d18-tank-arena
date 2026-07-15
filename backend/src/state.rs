@@ -1,5 +1,6 @@
 use backend::auth::AuthClient;
 use backend::config::AppConfig;
+use backend::email::EmailClient;
 use backend::storage::StorageClient;
 use sqlx::PgPool;
 
@@ -9,6 +10,7 @@ pub struct AppState {
     pub storage: StorageClient,
     pub database: PgPool,
     pub auth: AuthClient,
+    pub email: EmailClient,
 }
 
 impl AppState {
@@ -17,12 +19,14 @@ impl AppState {
         storage: StorageClient,
         database: PgPool,
         auth: AuthClient,
+        email: EmailClient,
     ) -> Self {
         Self {
             config,
             storage,
             database,
             auth,
+            email,
         }
     }
 }

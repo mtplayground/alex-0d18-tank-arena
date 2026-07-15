@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use backend::users::UserProfile;
 
@@ -31,6 +31,22 @@ pub struct AuthSessionResponse {
     pub user: UserProfile,
     pub registered: bool,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PasswordResetRequestPayload {
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PasswordResetConfirmPayload {
+    pub token: String,
+    pub password: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MessageResponse {
+    pub message: &'static str,
 }
 
 #[derive(Debug, Serialize)]
