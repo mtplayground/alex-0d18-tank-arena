@@ -12,12 +12,18 @@ use tracing::error;
 
 use backend::auth::AuthClient;
 use backend::config::AppConfig;
+use backend::email::{EmailClient, EmailError};
 use backend::storage::{AssetDefinition, StorageClient, StorageError, GAME_ASSETS};
+use backend::users::{
+    confirm_password_reset, create_password_reset_request, new_password_reset_token,
+    PasswordError, PasswordResetError,
+};
 
 use crate::{
     auth_middleware::{require_auth, AuthenticatedUser},
     protocol::{
         AssetManifestResponse, AssetResponse, AuthSessionResponse, ErrorResponse, HealthResponse,
+        MessageResponse, PasswordResetConfirmPayload, PasswordResetRequestPayload,
         RenderingStatus, RuntimeStatus,
     },
     state::AppState,
@@ -28,8 +34,9 @@ pub fn router(
     storage: StorageClient,
     database: PgPool,
     auth: AuthClient,
+    email: EmailClient,
 ) -> Router {
-    let state = AppState::new(config, storage, database, auth);
+    let state = AppState::new(config, storage, database, auth, email);
     let protected_routes = Router::new()
         .route("/api/auth/me", get(auth_me))
         .route_layer(from_fn_with_state(state.clone(), require_auth));
@@ -39,6 +46,14 @@ pub fn router(
         .route("/api/status", get(status))
         .route("/api/auth/login", get(auth_redirect).post(auth_redirect))
         .route("/api/auth/register", get(auth_redirect).post(auth_redirect))
+        .route(
+            "/api/auth/password-reset/request",
+            get(method_not_allowed).post(password_reset_request),
+        )
+        .route(
+            "/api/auth/password-reset/confirm",
+            get(method_not_allowed).post(password_reset_confirm),
+        )
         .route("/api/assets/manifest", get(asset_manifest))
         .route("/api/assets/:category/:asset_id", get(asset_redirect))
         .merge(protected_routes)
@@ -88,6 +103,59 @@ async fn auth_me(Extension(user): Extension<AuthenticatedUser>) -> Json<AuthSess
     })
 }
 
+async fn password_reset_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<PasswordResetRequestPayload>,
+) -> Result<Json<MessageResponse>, PasswordResetRouteError> {
+    let email = payload.email.trim();
+
+    if email.is_empty() {
+        return Err(PasswordResetRouteError::InvalidRequest(
+            "email is required",
+        ));
+    }
+
+    let reset_token = new_password_reset_token();
+    let reset_request =
+        create_password_reset_request(&state.database, email, &reset_token).await?;
+
+    if let Some(reset_request) = reset_request {
+        let reset_url = password_reset_url(&headers, &state.config, &reset_token.token);
+        state
+            .email
+            .send_password_reset(&reset_request.requested_email, &reset_url)
+            .await?;
+    }
+
+    Ok(Json(MessageResponse {
+        message: "If an account exists for that email, a password reset link has been sent.",
+    }))
+}
+
+async fn password_reset_confirm(
+    State(state): State<AppState>,
+    Json(payload): Json<PasswordResetConfirmPayload>,
+) -> Result<Json<MessageResponse>, PasswordResetRouteError> {
+    let token = payload.token.trim();
+
+    if token.is_empty() {
+        return Err(PasswordResetRouteError::InvalidRequest(
+            "reset token is required",
+        ));
+    }
+
+    let changed = confirm_password_reset(&state.database, token, &payload.password).await?;
+
+    if !changed {
+        return Err(PasswordResetRouteError::InvalidResetToken);
+    }
+
+    Ok(Json(MessageResponse {
+        message: "Password reset complete.",
+    }))
+}
+
 async fn asset_manifest(
     State(state): State<AppState>,
 ) -> Result<Json<AssetManifestResponse>, AssetRouteError> {
@@ -129,6 +197,15 @@ async fn not_found() -> impl IntoResponse {
     )
 }
 
+async fn method_not_allowed() -> impl IntoResponse {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        Json(ErrorResponse {
+            error: "method not allowed",
+        }),
+    )
+}
+
 fn find_asset(category: &str, asset_id: &str) -> Option<&'static AssetDefinition> {
     GAME_ASSETS
         .iter()
@@ -159,6 +236,14 @@ fn root_url(base_url: &str) -> String {
     format!("{}/", base_url.trim_end_matches('/'))
 }
 
+fn password_reset_url(headers: &HeaderMap, config: &AppConfig, token: &str) -> String {
+    format!(
+        "{}reset-password?token={}",
+        frontend_return_to(headers, config),
+        urlencoding::encode(token)
+    )
+}
+
 #[derive(Debug)]
 enum AssetRouteError {
     NotFound,
@@ -187,6 +272,106 @@ impl IntoResponse for AssetRouteError {
                     StatusCode::BAD_GATEWAY,
                     Json(ErrorResponse {
                         error: "asset url unavailable",
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+enum PasswordResetRouteError {
+    InvalidRequest(&'static str),
+    InvalidResetToken,
+    Password(PasswordError),
+    Database(sqlx::Error),
+    Email(EmailError),
+}
+
+impl From<sqlx::Error> for PasswordResetRouteError {
+    fn from(error: sqlx::Error) -> Self {
+        Self::Database(error)
+    }
+}
+
+impl From<PasswordResetError> for PasswordResetRouteError {
+    fn from(error: PasswordResetError) -> Self {
+        match error {
+            PasswordResetError::Password(error) => Self::Password(error),
+            PasswordResetError::Database(error) => Self::Database(error),
+        }
+    }
+}
+
+impl From<EmailError> for PasswordResetRouteError {
+    fn from(error: EmailError) -> Self {
+        Self::Email(error)
+    }
+}
+
+impl IntoResponse for PasswordResetRouteError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::InvalidRequest(error) => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error }),
+            )
+                .into_response(),
+            Self::InvalidResetToken => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "reset token is invalid or expired",
+                }),
+            )
+                .into_response(),
+            Self::Password(PasswordError::EmptyPassword) => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "password is required",
+                }),
+            )
+                .into_response(),
+            Self::Password(PasswordError::PasswordTooLong) => (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "password is too long",
+                }),
+            )
+                .into_response(),
+            Self::Password(error) => {
+                error!(?error, "failed to hash reset password");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "password reset failed",
+                    }),
+                )
+                    .into_response()
+            }
+            Self::Database(error) => {
+                error!(?error, "password reset database operation failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "password reset failed",
+                    }),
+                )
+                    .into_response()
+            }
+            Self::Email(EmailError::RateLimited) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                Json(ErrorResponse {
+                    error: "email rate limited; try again shortly",
+                }),
+            )
+                .into_response(),
+            Self::Email(error) => {
+                error!(?error, "password reset email send failed");
+                (
+                    StatusCode::BAD_GATEWAY,
+                    Json(ErrorResponse {
+                        error: "password reset email unavailable",
                     }),
                 )
                     .into_response()
