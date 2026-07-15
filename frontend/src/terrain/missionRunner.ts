@@ -6,12 +6,25 @@ import { MISSIONS, type MissionDefinition } from './missions';
 import type { ProjectileResolution } from './projectileModel';
 
 export type MissionStatus = 'active' | 'campaign-complete' | 'complete';
+export type MissionScreen = 'combat' | 'results' | 'select';
 export type MissionSyncStatus = 'error' | 'loading' | 'local' | 'saved' | 'saving';
 
 type MissionRunnerState = {
+  completedMissionIds: string[];
   cursor: number;
+  result: MissionResult | null;
+  screen: MissionScreen;
   status: MissionStatus;
   targetIntegrity: number;
+};
+
+export type MissionResult = {
+  damageDealt: number;
+  missionId: string;
+  nextMissionId: string | null;
+  outcome: 'campaign-complete' | 'victory';
+  remainingIntegrity: number;
+  title: string;
 };
 
 export type MissionSequenceItem = {
@@ -20,20 +33,33 @@ export type MissionSequenceItem = {
   status: 'active' | 'complete' | 'locked';
 };
 
+export type MissionSelectItem = {
+  actionLabel: string;
+  mission: MissionDefinition;
+  status: 'available' | 'complete' | 'locked' | 'selected';
+};
+
 export type MissionRunner = {
   activeMission: MissionDefinition;
   applyResolution: (resolution: ProjectileResolution) => void;
+  continueFromResults: () => void;
+  missionChoices: MissionSelectItem[];
+  result: MissionResult | null;
+  retryMission: () => void;
+  screen: MissionScreen;
   sequence: MissionSequenceItem[];
+  startMission: (missionId: string) => void;
   status: MissionStatus;
   syncStatus: MissionSyncStatus;
   targetIntegrity: number;
 };
 
-const ADVANCE_DELAY_MS = 1200;
-
 export function useMissionRunner(): MissionRunner {
   const [state, setState] = useState<MissionRunnerState>(() => ({
+    completedMissionIds: [],
     cursor: 0,
+    result: null,
+    screen: 'select',
     status: 'active',
     targetIntegrity: MISSIONS[0].targetIntegrity,
   }));
@@ -80,7 +106,7 @@ export function useMissionRunner(): MissionRunner {
     }
 
     setState((current) => {
-      if (current.status !== 'active') {
+      if (current.screen !== 'combat' || current.status !== 'active') {
         return current;
       }
 
@@ -90,16 +116,30 @@ export function useMissionRunner(): MissionRunner {
         return { ...current, targetIntegrity: nextIntegrity };
       }
 
+      const mission = MISSIONS[current.cursor];
+      const isCampaignComplete = current.cursor >= MISSIONS.length - 1;
+      const completedMissionIds = uniqueMissionIds([...current.completedMissionIds, mission.id]);
+
       return {
         ...current,
-        status: current.cursor >= MISSIONS.length - 1 ? 'campaign-complete' : 'complete',
+        completedMissionIds,
+        result: {
+          damageDealt: mission.targetIntegrity,
+          missionId: mission.id,
+          nextMissionId: isCampaignComplete ? null : MISSIONS[current.cursor + 1].id,
+          outcome: isCampaignComplete ? 'campaign-complete' : 'victory',
+          remainingIntegrity: 0,
+          title: mission.title,
+        },
+        screen: 'results',
+        status: isCampaignComplete ? 'campaign-complete' : 'complete',
         targetIntegrity: 0,
       };
     });
   }, []);
 
   useEffect(() => {
-    if (!hydrated || !persistenceEnabled) {
+    if (!hydrated || !persistenceEnabled || state.screen === 'select') {
       return;
     }
 
@@ -131,46 +171,120 @@ export function useMissionRunner(): MissionRunner {
     return () => controller.abort();
   }, [hydrated, persistenceEnabled, state]);
 
-  useEffect(() => {
-    if (state.status !== 'complete') {
-      return;
-    }
+  const startMission = useCallback((missionId: string) => {
+    setState((current) => {
+      const nextCursor = MISSIONS.findIndex((mission) => mission.id === missionId);
 
-    const timeout = window.setTimeout(() => {
-      setState((current) => {
-        const nextCursor = Math.min(current.cursor + 1, MISSIONS.length - 1);
-        const nextMission = MISSIONS[nextCursor];
+      if (nextCursor < 0 || isMissionLocked(nextCursor, current.completedMissionIds)) {
+        return current;
+      }
 
+      const nextMission = MISSIONS[nextCursor];
+      const shouldResumeSelected =
+        current.cursor === nextCursor &&
+        !current.completedMissionIds.includes(nextMission.id) &&
+        current.targetIntegrity > 0;
+
+      return {
+        ...current,
+        cursor: nextCursor,
+        result: null,
+        screen: 'combat',
+        status: 'active',
+        targetIntegrity: shouldResumeSelected
+          ? current.targetIntegrity
+          : nextMission.targetIntegrity,
+      };
+    });
+  }, []);
+
+  const retryMission = useCallback(() => {
+    setState((current) => {
+      const mission = MISSIONS[current.cursor];
+
+      return {
+        ...current,
+        result: null,
+        screen: 'combat',
+        status: 'active',
+        targetIntegrity: mission.targetIntegrity,
+      };
+    });
+  }, []);
+
+  const continueFromResults = useCallback(() => {
+    setState((current) => {
+      if (current.status === 'campaign-complete') {
         return {
-          cursor: nextCursor,
-          status: 'active',
-          targetIntegrity: nextMission.targetIntegrity,
+          ...current,
+          result: null,
+          screen: 'select',
         };
-      });
-    }, ADVANCE_DELAY_MS);
+      }
 
-    return () => window.clearTimeout(timeout);
-  }, [state.status]);
+      const nextCursor = Math.min(current.cursor + 1, MISSIONS.length - 1);
+      const nextMission = MISSIONS[nextCursor];
+
+      return {
+        ...current,
+        cursor: nextCursor,
+        result: null,
+        screen: 'select',
+        status: 'active',
+        targetIntegrity: nextMission.targetIntegrity,
+      };
+    });
+  }, []);
 
   const sequence = useMemo<MissionSequenceItem[]>(
     () =>
       MISSIONS.map((mission, index) => ({
         id: mission.id,
         sequence: mission.sequence,
-        status:
-          index === state.cursor
+        status: state.completedMissionIds.includes(mission.id)
+          ? 'complete'
+          : index === state.cursor
             ? 'active'
-            : index < state.cursor || state.status === 'campaign-complete'
-              ? 'complete'
-              : 'locked',
+            : isMissionLocked(index, state.completedMissionIds)
+              ? 'locked'
+              : 'active',
       })),
-    [state.cursor, state.status],
+    [state.completedMissionIds, state.cursor],
+  );
+
+  const missionChoices = useMemo<MissionSelectItem[]>(
+    () =>
+      MISSIONS.map((mission, index) => {
+        const isComplete = state.completedMissionIds.includes(mission.id);
+        const locked = isMissionLocked(index, state.completedMissionIds);
+        const isSelected = index === state.cursor && !isComplete && !locked;
+        const status = locked
+          ? 'locked'
+          : isComplete
+            ? 'complete'
+            : isSelected
+              ? 'selected'
+              : 'available';
+
+        return {
+          actionLabel: locked ? 'Locked' : isComplete ? 'Replay' : isSelected ? 'Start' : 'Select',
+          mission,
+          status,
+        };
+      }),
+    [state.completedMissionIds, state.cursor],
   );
 
   return {
     activeMission,
     applyResolution,
+    continueFromResults,
+    missionChoices,
+    result: state.result,
+    retryMission,
+    screen: state.screen,
     sequence,
+    startMission,
     status: state.status,
     syncStatus,
     targetIntegrity: state.targetIntegrity,
@@ -179,13 +293,19 @@ export function useMissionRunner(): MissionRunner {
 
 function stateFromProgress(progress: MissionProgressEntry[]): MissionRunnerState {
   const byMission = new Map(progress.map((entry) => [entry.mission_key, entry]));
+  const completedMissionIds = MISSIONS.filter(
+    (mission) => byMission.get(mission.id)?.status === 'completed',
+  ).map((mission) => mission.id);
   const firstIncompleteIndex = MISSIONS.findIndex(
     (mission) => byMission.get(mission.id)?.status !== 'completed',
   );
 
   if (firstIncompleteIndex === -1) {
     return {
+      completedMissionIds,
       cursor: MISSIONS.length - 1,
+      result: null,
+      screen: 'select',
       status: 'campaign-complete',
       targetIntegrity: 0,
     };
@@ -195,7 +315,10 @@ function stateFromProgress(progress: MissionProgressEntry[]): MissionRunnerState
   const saved = byMission.get(mission.id);
 
   return {
+    completedMissionIds,
     cursor: firstIncompleteIndex,
+    result: null,
+    screen: 'select',
     status: 'active',
     targetIntegrity: savedTargetIntegrity(saved, mission.targetIntegrity),
   };
@@ -216,7 +339,10 @@ function progressPayloadForState(
   mission: MissionDefinition,
   state: MissionRunnerState,
 ): MissionProgressUpdatePayload {
-  const isComplete = state.status === 'complete' || state.status === 'campaign-complete';
+  const isComplete =
+    state.completedMissionIds.includes(mission.id) ||
+    state.status === 'complete' ||
+    state.status === 'campaign-complete';
 
   return {
     attempts: 1,
@@ -224,21 +350,21 @@ function progressPayloadForState(
     current_step: state.cursor,
     progress: {
       campaignComplete: state.status === 'campaign-complete',
-      completedMissionIds: completedMissionIdsForState(state),
+      completedMissionIds: state.completedMissionIds,
+      result: state.result,
+      screen: state.screen,
       targetIntegrity: state.targetIntegrity,
     },
     status: isComplete ? 'completed' : 'in_progress',
   };
 }
 
-function completedMissionIdsForState(state: MissionRunnerState): string[] {
-  if (state.status === 'campaign-complete') {
-    return MISSIONS.map((mission) => mission.id);
-  }
+function isMissionLocked(index: number, completedMissionIds: string[]): boolean {
+  return index > 0 && !completedMissionIds.includes(MISSIONS[index - 1].id);
+}
 
-  return MISSIONS.filter(
-    (_, index) => index < state.cursor || (state.status === 'complete' && index === state.cursor),
-  ).map((mission) => mission.id);
+function uniqueMissionIds(missionIds: string[]): string[] {
+  return MISSIONS.filter((mission) => missionIds.includes(mission.id)).map((mission) => mission.id);
 }
 
 function isAbortError(error: unknown): boolean {
