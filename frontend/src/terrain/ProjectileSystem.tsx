@@ -13,6 +13,7 @@ import type { TankPose } from './tankState';
 import { TACTICAL_COLORS } from './visualStyle';
 
 type ProjectileSystemProps = {
+  onResolution?: (resolution: ProjectileResolution) => void;
   poseRef: MutableRefObject<TankPose>;
 };
 
@@ -29,7 +30,7 @@ type ActiveProjectile = {
 const PROJECTILE_SPEED = 8.5;
 const FIRE_COOLDOWN_SECONDS = 0.55;
 
-export function ProjectileSystem({ poseRef }: ProjectileSystemProps) {
+export function ProjectileSystem({ onResolution, poseRef }: ProjectileSystemProps) {
   const [projectiles, setProjectiles] = useState<ActiveProjectile[]>([]);
   const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
   const nextId = useRef(1);
@@ -48,6 +49,7 @@ export function ProjectileSystem({ poseRef }: ProjectileSystemProps) {
 
     cooldown.current = FIRE_COOLDOWN_SECONDS;
     setLastResolution(resolution);
+    onResolution?.(resolution);
     setProjectiles((current) => [
       ...current,
       {
@@ -61,7 +63,7 @@ export function ProjectileSystem({ poseRef }: ProjectileSystemProps) {
       },
     ]);
     nextId.current += 1;
-  }, [poseRef]);
+  }, [onResolution, poseRef]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
