@@ -1,8 +1,9 @@
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
-import { type MutableRefObject, useEffect, useMemo, useRef, useState } from 'react';
+import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BufferGeometry, Group, Line, LineBasicMaterial, Mesh, Vector3 } from 'three';
 
+import { CombatHud } from './CombatHud';
 import { ProjectileSystem } from './ProjectileSystem';
 import { BoxSilhouette, CylinderSilhouette } from './Silhouette';
 import {
@@ -15,7 +16,7 @@ import {
 import { BATTLEFIELD_HALF_SIZE, terrainHeight, type Vec3 } from './battlefield';
 import { BASE_SHELL_DAMAGE, calculateDamageMitigation, type DamageMitigation } from './damageModel';
 import { DEFAULT_SIGHT_END, evaluateProjectilePath } from './occlusion';
-import { projectileMuzzlePosition } from './projectileModel';
+import { projectileMuzzlePosition, type ProjectileResolution } from './projectileModel';
 import { TANK_EYE_HEIGHT, createInitialTankPose, type TankPose } from './tankState';
 import { TACTICAL_COLORS } from './visualStyle';
 
@@ -41,6 +42,15 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
   const turretRef = useRef<Group>(null);
   const driveInput = useKeyboardDrive();
   const tankPose = useRef(createInitialTankPose());
+  const [targetHealth, setTargetHealth] = useState(100);
+  const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
+  const handleProjectileResolution = useCallback((resolution: ProjectileResolution) => {
+    setLastResolution(resolution);
+
+    if (resolution.kind === 'target-hit') {
+      setTargetHealth((current) => Math.max(0, current - resolution.damage.finalDamage));
+    }
+  }, []);
 
   useFrame((_, delta) => {
     const nextPose = integrateTankPose(tankPose.current, driveInput.current, delta);
@@ -67,8 +77,9 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         <TankModel turretRef={turretRef} />
       </group>
       <TankSightline poseRef={poseRef} />
-      <ProjectileSystem poseRef={poseRef} />
+      <ProjectileSystem onResolution={handleProjectileResolution} poseRef={poseRef} />
       <ArmorAngleReadout poseRef={poseRef} />
+      <CombatHud health={targetHealth} lastResolution={lastResolution} poseRef={poseRef} />
     </>
   );
 }
