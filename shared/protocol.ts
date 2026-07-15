@@ -29,3 +29,16 @@ export type AuthSessionResponse = {
   registered: boolean;
   message: string;
 };
+
+export type AssetResponse = {
+  id: string;
+  category: string;
+  label: string;
+  content_type: string;
+  url: string;
+};
+
+export type AssetManifestResponse = {
+  assets: AssetResponse[];
+  expires_in_seconds: number;
+};

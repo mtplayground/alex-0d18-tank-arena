@@ -1,14 +1,7 @@
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 
-function TerrainPlate() {
-  return (
-    <mesh rotation-x={-Math.PI / 2} receiveShadow>
-      <planeGeometry args={[8, 8, 32, 32]} />
-      <meshStandardMaterial color="#6f7f5f" roughness={0.85} metalness={0.05} />
-    </mesh>
-  );
-}
+import { TerrainRenderer } from '../terrain/TerrainRenderer';
 
 function Marker() {
   return (
@@ -32,19 +25,26 @@ function Marker() {
 export function ScenePreview() {
   return (
     <Canvas shadows className="scene-preview">
-      <PerspectiveCamera makeDefault position={[4.5, 4.2, 5.5]} fov={45} />
-      <ambientLight intensity={0.55} />
+      <PerspectiveCamera makeDefault position={[5.6, 4.6, 6.4]} fov={46} />
+      <color attach="background" args={['#dce5e7']} />
+      <fog attach="fog" args={['#dce5e7', 9, 18]} />
+      <ambientLight intensity={0.48} />
       <directionalLight
         castShadow
-        intensity={1.8}
-        position={[4, 6, 3]}
+        intensity={2}
+        position={[4.5, 7, 3.5]}
         shadow-mapSize-height={1024}
         shadow-mapSize-width={1024}
       />
-      <TerrainPlate />
+      <TerrainRenderer />
       <Marker />
-      <gridHelper args={[8, 8, '#d6d9cf', '#9da792']} position={[0, 0.01, 0]} />
-      <OrbitControls enablePan={false} maxPolarAngle={Math.PI / 2.2} minDistance={4} />
+      <OrbitControls
+        enablePan={false}
+        maxDistance={10}
+        maxPolarAngle={Math.PI / 2.05}
+        minDistance={4.5}
+        target={[0, 0.2, 0]}
+      />
     </Canvas>
   );
 }
