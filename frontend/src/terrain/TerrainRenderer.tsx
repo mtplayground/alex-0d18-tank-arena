@@ -15,6 +15,7 @@ import {
 import type { Material } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+import { BoxSilhouette, DodecahedronSilhouette } from './Silhouette';
 import {
   RIDGE_MARKERS,
   createRubblePieces,
@@ -31,6 +32,7 @@ import {
   type LineOfSightResult,
 } from './occlusion';
 import { useAssetManifest } from './useAssetManifest';
+import { TACTICAL_COLORS } from './visualStyle';
 
 type TerrainAssetUrls = {
   terrainModelUrl?: string;
@@ -67,8 +69,9 @@ export function TerrainRenderer() {
     <group>
       <mesh receiveShadow geometry={fallbackGeometry}>
         <meshStandardMaterial
-          color={terrainTexture ? '#ffffff' : '#718565'}
+          color={terrainTexture ? TACTICAL_COLORS.groundLight : TACTICAL_COLORS.ground}
           map={terrainTexture ?? undefined}
+          flatShading
           roughness={0.92}
           metalness={0.02}
         />
@@ -88,17 +91,25 @@ function RidgeMarkers({ markers }: { markers: RidgeMarker[] }) {
   return (
     <group>
       {markers.map((marker) => (
-        <mesh
-          key={marker.id}
-          position={marker.position}
-          rotation={marker.rotation}
-          scale={marker.scale}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial color={marker.color} roughness={0.95} />
-        </mesh>
+        <group key={marker.id}>
+          <BoxSilhouette
+            args={[1, 1, 1]}
+            expansion={1.035}
+            position={marker.position}
+            rotation={marker.rotation}
+            scale={marker.scale}
+          />
+          <mesh
+            position={marker.position}
+            rotation={marker.rotation}
+            scale={marker.scale}
+            castShadow
+            receiveShadow
+          >
+            <boxGeometry args={[1, 1, 1]} />
+            <meshStandardMaterial color={marker.color} flatShading roughness={0.95} />
+          </mesh>
+        </group>
       ))}
     </group>
   );
@@ -108,17 +119,27 @@ function RubbleField({ pieces }: { pieces: RubblePiece[] }) {
   return (
     <group>
       {pieces.map((piece, index) => (
-        <mesh
-          key={`${piece.position.join(':')}-${index}`}
-          position={piece.position}
-          rotation={piece.rotation}
-          scale={piece.scale}
-          castShadow
-          receiveShadow
-        >
-          <dodecahedronGeometry args={[0.18, 0]} />
-          <meshStandardMaterial color={index % 2 === 0 ? '#6e675f' : '#4f5960'} roughness={0.88} />
-        </mesh>
+        <group key={`${piece.position.join(':')}-${index}`}>
+          <DodecahedronSilhouette
+            position={piece.position}
+            rotation={piece.rotation}
+            scale={piece.scale}
+          />
+          <mesh
+            position={piece.position}
+            rotation={piece.rotation}
+            scale={piece.scale}
+            castShadow
+            receiveShadow
+          >
+            <dodecahedronGeometry args={[0.18, 0]} />
+            <meshStandardMaterial
+              color={index % 2 === 0 ? TACTICAL_COLORS.rubble : TACTICAL_COLORS.rubbleCool}
+              flatShading
+              roughness={0.88}
+            />
+          </mesh>
+        </group>
       ))}
     </group>
   );
@@ -139,10 +160,10 @@ function LineOfSightProbe({ result }: { result: LineOfSightResult }) {
   const material = useMemo(
     () =>
       new LineBasicMaterial({
-        color: result.clear ? '#3fb79a' : '#d35f4f',
+        color: result.clear ? TACTICAL_COLORS.sightClear : TACTICAL_COLORS.sightBlocked,
         linewidth: 2,
         transparent: true,
-        opacity: 0.9,
+        opacity: 1,
       }),
     [result.clear],
   );
@@ -156,16 +177,28 @@ function LineOfSightProbe({ result }: { result: LineOfSightResult }) {
       <primitive object={lineObject} />
       <mesh position={result.start}>
         <sphereGeometry args={[0.12, 16, 16]} />
-        <meshStandardMaterial color="#2d8f7a" emissive="#16483e" emissiveIntensity={0.35} />
+        <meshStandardMaterial
+          color={TACTICAL_COLORS.sightCore}
+          emissive={TACTICAL_COLORS.sightClear}
+          emissiveIntensity={0.45}
+        />
       </mesh>
       <mesh position={result.end}>
         <sphereGeometry args={[0.12, 16, 16]} />
-        <meshStandardMaterial color="#2d8f7a" emissive="#16483e" emissiveIntensity={0.35} />
+        <meshStandardMaterial
+          color={TACTICAL_COLORS.sightCore}
+          emissive={TACTICAL_COLORS.sightClear}
+          emissiveIntensity={0.45}
+        />
       </mesh>
       {result.hit ? (
         <mesh position={result.hit.point}>
           <sphereGeometry args={[0.16, 18, 18]} />
-          <meshStandardMaterial color="#d35f4f" emissive="#732c25" emissiveIntensity={0.5} />
+          <meshStandardMaterial
+            color={TACTICAL_COLORS.sightBlocked}
+            emissive={TACTICAL_COLORS.sightBlocked}
+            emissiveIntensity={0.5}
+          />
         </mesh>
       ) : null}
     </group>
@@ -176,16 +209,17 @@ function Structures({ pieces }: { pieces: StructurePiece[] }) {
   return (
     <group>
       {pieces.map((piece, index) => (
-        <mesh
-          key={`${piece.position.join(':')}-${index}`}
-          position={piece.position}
-          scale={piece.scale}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[1, 1, 1]} />
-          <meshStandardMaterial color={index % 2 === 0 ? '#78828b' : '#5c6871'} roughness={0.72} />
-        </mesh>
+        <group key={`${piece.position.join(':')}-${index}`}>
+          <BoxSilhouette args={[1, 1, 1]} position={piece.position} scale={piece.scale} />
+          <mesh position={piece.position} scale={piece.scale} castShadow receiveShadow>
+            <boxGeometry args={[1, 1, 1]} />
+            <meshStandardMaterial
+              color={index % 2 === 0 ? TACTICAL_COLORS.concrete : TACTICAL_COLORS.concreteDark}
+              flatShading
+              roughness={0.72}
+            />
+          </mesh>
+        </group>
       ))}
     </group>
   );
