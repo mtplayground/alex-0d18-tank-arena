@@ -1,12 +1,13 @@
 use std::{collections::HashMap, sync::Arc};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{broadcast, RwLock};
 
 const MATCH_CHANNEL_CAPACITY: usize = 128;
 const MAX_MATCH_ID_LEN: usize = 80;
+const RECONNECT_GRACE_SECONDS: i64 = 90;
 const ARENA_HALF_SIZE: f32 = 6.0;
 const BASE_SHELL_DAMAGE: u16 = 100;
 const FIRE_COOLDOWN_MILLIS: i64 = 650;
@@ -36,39 +37,96 @@ impl MatchSessionRegistry {
     ) -> Result<MatchSessionSubscription, MatchSessionError> {
         validate_match_id(match_id)?;
 
-        let (sender, receiver, connection_count) = {
+        let (
+            sender,
+            receiver,
+            connection_count,
+            connected_payload,
+            presence_kind,
+            presence_payload,
+        ) = {
+            let now = Utc::now();
             let mut sessions = self.inner.write().await;
+            sessions.retain(|_, session| session.rejoin_available_at(now));
+
             let session = sessions.entry(match_id.to_owned()).or_insert_with(|| {
                 let (sender, _) = broadcast::channel(MATCH_CHANNEL_CAPACITY);
                 MatchSession {
                     connection_count: 0,
+                    empty_since: None,
+                    player_connections: HashMap::new(),
                     players: HashMap::new(),
                     sequence: 0,
                     sender,
                 }
             });
 
+            let resume_available = session.players.contains_key(user_sub);
+            let previous_disconnect_at = session
+                .player_connections
+                .get(user_sub)
+                .and_then(|connection| connection.disconnected_at);
             session.connection_count += 1;
+            session.empty_since = None;
+            session.sequence += 1;
+            let sequence = session.sequence;
+
+            let player_connection = session
+                .player_connections
+                .entry(user_sub.to_owned())
+                .or_insert_with(PlayerConnectionState::default);
+            player_connection.active_connections += 1;
+            player_connection.connected_at = Some(now);
+            player_connection.disconnected_at = None;
+
+            let players = session.player_snapshot();
+            let connections = session.connection_snapshot();
+            let presence_kind = if previous_disconnect_at.is_some() || resume_available {
+                "player_reconnected"
+            } else {
+                "player_joined"
+            };
+            let connected_payload = json!({
+                "accepted_message_types": ["fire", "match_signal", "player_state"],
+                "authoritative_message_types": ["fire", "player_state"],
+                "connections": connections,
+                "players": players,
+                "reconnect_grace_seconds": RECONNECT_GRACE_SECONDS,
+                "resume_available": resume_available,
+                "sequence": sequence,
+            });
+            let presence_payload = json!({
+                "connections": session.connection_snapshot(),
+                "players": session.player_snapshot(),
+                "previous_disconnect_at": previous_disconnect_at,
+                "reconnect_grace_seconds": RECONNECT_GRACE_SECONDS,
+                "resume_available": resume_available,
+                "sequence": sequence,
+            });
 
             (
                 session.sender.clone(),
                 session.sender.subscribe(),
                 session.connection_count,
+                connected_payload,
+                presence_kind,
+                presence_payload,
             )
         };
 
         let joined = MatchSocketEvent::new(
-            "player_joined",
+            presence_kind,
             match_id,
             user_sub,
             connection_count,
-            json!({}),
+            presence_payload,
         )
         .to_message()?;
         let _ = sender.send(joined);
 
         Ok(MatchSessionSubscription {
             connection_count,
+            connected_payload,
             match_id: match_id.to_owned(),
             receiver,
             sender,
@@ -81,29 +139,48 @@ impl MatchSessionRegistry {
         match_id: &str,
         user_sub: &str,
     ) -> Result<(), MatchSessionError> {
-        let (sender, connection_count) = {
+        let (sender, connection_count, payload) = {
+            let now = Utc::now();
             let mut sessions = self.inner.write().await;
             let Some(session) = sessions.get_mut(match_id) else {
                 return Ok(());
             };
 
             session.connection_count = session.connection_count.saturating_sub(1);
-            let sender = session.sender.clone();
-            let connection_count = session.connection_count;
-
-            if connection_count == 0 {
-                sessions.remove(match_id);
+            session.sequence += 1;
+            let sequence = session.sequence;
+            if session.connection_count == 0 {
+                session.empty_since = Some(now);
             }
 
-            (sender, connection_count)
+            if let Some(player_connection) = session.player_connections.get_mut(user_sub) {
+                player_connection.active_connections =
+                    player_connection.active_connections.saturating_sub(1);
+
+                if player_connection.active_connections == 0 {
+                    player_connection.disconnected_at = Some(now);
+                }
+            }
+
+            let sender = session.sender.clone();
+            let connection_count = session.connection_count;
+            let payload = json!({
+                "connections": session.connection_snapshot(),
+                "players": session.player_snapshot(),
+                "reconnect_deadline": reconnect_deadline(now),
+                "reconnect_grace_seconds": RECONNECT_GRACE_SECONDS,
+                "sequence": sequence,
+            });
+
+            (sender, connection_count, payload)
         };
 
         let left = MatchSocketEvent::new(
-            "player_left",
+            "player_disconnected",
             match_id,
             user_sub,
             connection_count,
-            json!({}),
+            payload,
         )
         .to_message()?;
         let _ = sender.send(left);
@@ -250,6 +327,7 @@ impl MatchSessionRegistry {
 #[derive(Debug)]
 pub struct MatchSessionSubscription {
     pub connection_count: usize,
+    pub connected_payload: Value,
     pub match_id: String,
     pub receiver: broadcast::Receiver<String>,
     pub sender: broadcast::Sender<String>,
@@ -263,10 +341,7 @@ impl MatchSessionSubscription {
             &self.match_id,
             &self.user_sub,
             self.connection_count,
-            json!({
-                "accepted_message_types": ["fire", "match_signal", "player_state"],
-                "authoritative_message_types": ["fire", "player_state"],
-            }),
+            self.connected_payload.clone(),
         )
         .to_message()
     }
@@ -319,16 +394,47 @@ pub enum MatchSessionError {
 #[derive(Clone)]
 struct MatchSession {
     connection_count: usize,
+    empty_since: Option<DateTime<Utc>>,
+    player_connections: HashMap<String, PlayerConnectionState>,
     players: HashMap<String, AuthoritativeTankState>,
     sequence: u64,
     sender: broadcast::Sender<String>,
 }
 
 impl MatchSession {
+    fn connection_snapshot(&self) -> Vec<PlayerConnectionSnapshot> {
+        let mut connections: Vec<_> = self
+            .player_connections
+            .iter()
+            .map(|(user_sub, connection)| {
+                let connected = connection.active_connections > 0;
+
+                PlayerConnectionSnapshot {
+                    active_connections: connection.active_connections,
+                    connected,
+                    connected_at: connection.connected_at,
+                    disconnected_at: connection.disconnected_at,
+                    reconnect_deadline: connection.disconnected_at.map(reconnect_deadline),
+                    user_sub: user_sub.clone(),
+                }
+            })
+            .collect();
+        connections.sort_by(|left, right| left.user_sub.cmp(&right.user_sub));
+        connections
+    }
+
     fn player_snapshot(&self) -> Vec<AuthoritativeTankState> {
         let mut players: Vec<_> = self.players.values().cloned().collect();
         players.sort_by(|left, right| left.user_sub.cmp(&right.user_sub));
         players
+    }
+
+    fn rejoin_available_at(&self, now: DateTime<Utc>) -> bool {
+        self.connection_count > 0
+            || self
+                .empty_since
+                .map(|empty_since| now.signed_duration_since(empty_since).num_seconds())
+                .is_some_and(|elapsed_seconds| elapsed_seconds <= RECONNECT_GRACE_SECONDS)
     }
 
     fn resolve_fire(
@@ -460,6 +566,23 @@ impl MatchSession {
             Ok(())
         }
     }
+}
+
+#[derive(Clone, Debug, Default)]
+struct PlayerConnectionState {
+    active_connections: usize,
+    connected_at: Option<DateTime<Utc>>,
+    disconnected_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+struct PlayerConnectionSnapshot {
+    active_connections: usize,
+    connected: bool,
+    connected_at: Option<DateTime<Utc>>,
+    disconnected_at: Option<DateTime<Utc>>,
+    reconnect_deadline: Option<DateTime<Utc>>,
+    user_sub: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -775,6 +898,10 @@ fn terrain_height(x: f32, z: f32) -> f32 {
     let crater = (-((x + 1.2).powi(2) + (z - 0.6).powi(2)) / 1.4).exp() * -0.42;
 
     ridge_a + ridge_b + broken_ground + crater - 0.1
+}
+
+fn reconnect_deadline(disconnected_at: DateTime<Utc>) -> DateTime<Utc> {
+    disconnected_at + Duration::seconds(RECONNECT_GRACE_SECONDS)
 }
 
 #[derive(Debug, Serialize)]
