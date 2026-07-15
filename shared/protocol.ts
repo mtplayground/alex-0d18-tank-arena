@@ -71,3 +71,30 @@ export type MissionProgressUpdatePayload = {
   best_score: number | null;
   progress: Record<string, unknown>;
 };
+
+export type MatchmakingArenaSize = 'duel' | 'small_arena';
+
+export type MatchmakingStatus = 'idle' | 'matched' | 'queued';
+
+export type MatchmakingJoinPayload = {
+  arena_size?: MatchmakingArenaSize | null;
+};
+
+export type MatchmakingParticipant = {
+  side: string;
+  user_sub: string;
+};
+
+export type MatchmakingMatch = {
+  arena_size: MatchmakingArenaSize;
+  match_id: string;
+  participants: MatchmakingParticipant[];
+  websocket_path: string;
+};
+
+export type MatchmakingQueueResponse = {
+  arena_size: MatchmakingArenaSize | null;
+  match_session: MatchmakingMatch | null;
+  queue_position: number | null;
+  status: MatchmakingStatus;
+};

@@ -2,6 +2,7 @@ use backend::auth::AuthClient;
 use backend::config::AppConfig;
 use backend::email::EmailClient;
 use backend::match_sessions::MatchSessionRegistry;
+use backend::matchmaking::MatchmakingQueue;
 use backend::storage::StorageClient;
 use sqlx::PgPool;
 
@@ -13,6 +14,7 @@ pub struct AppState {
     pub auth: AuthClient,
     pub email: EmailClient,
     pub match_sessions: MatchSessionRegistry,
+    pub matchmaking: MatchmakingQueue,
 }
 
 impl AppState {
@@ -30,6 +32,7 @@ impl AppState {
             auth,
             email,
             match_sessions: MatchSessionRegistry::new(),
+            matchmaking: MatchmakingQueue::new(),
         }
     }
 }

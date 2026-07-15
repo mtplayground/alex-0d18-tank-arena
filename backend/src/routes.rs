@@ -21,6 +21,7 @@ use backend::email::{EmailClient, EmailError};
 use backend::match_sessions::{
     validate_match_id, MatchSessionError, MatchSessionRegistry, MatchSessionSubscription,
 };
+use backend::matchmaking::MatchmakingError;
 use backend::mission_progress::{
     list_mission_progress, upsert_mission_progress, MissionProgressError,
 };
@@ -34,9 +35,9 @@ use crate::{
     auth_middleware::{require_auth, AuthenticatedUser},
     protocol::{
         AssetManifestResponse, AssetResponse, AuthSessionResponse, ErrorResponse, HealthResponse,
-        MessageResponse, MissionProgressListResponse, MissionProgressUpdatePayload,
-        MissionProgressUpdateResponse, PasswordResetConfirmPayload, PasswordResetRequestPayload,
-        RenderingStatus, RuntimeStatus,
+        MatchmakingJoinPayload, MatchmakingQueueResponse, MessageResponse,
+        MissionProgressListResponse, MissionProgressUpdatePayload, MissionProgressUpdateResponse,
+        PasswordResetConfirmPayload, PasswordResetRequestPayload, RenderingStatus, RuntimeStatus,
     },
     state::AppState,
 };
@@ -51,6 +52,12 @@ pub fn router(
     let state = AppState::new(config, storage, database, auth, email);
     let protected_routes = Router::new()
         .route("/api/auth/me", get(auth_me))
+        .route(
+            "/api/matchmaking/queue",
+            get(matchmaking_status)
+                .post(matchmaking_join)
+                .delete(matchmaking_cancel),
+        )
         .route("/api/mission-progress", get(mission_progress_list))
         .route(
             "/api/mission-progress/:mission_key",
@@ -119,6 +126,33 @@ async fn auth_me(Extension(user): Extension<AuthenticatedUser>) -> Json<AuthSess
         registered: user.registered,
         message,
     })
+}
+
+async fn matchmaking_status(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+) -> Json<MatchmakingQueueResponse> {
+    Json(state.matchmaking.status(&user.profile.sub).await)
+}
+
+async fn matchmaking_join(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+    Json(payload): Json<MatchmakingJoinPayload>,
+) -> Result<Json<MatchmakingQueueResponse>, MatchmakingRouteError> {
+    let response = state
+        .matchmaking
+        .join(&state.database, &user.profile.sub, payload)
+        .await?;
+
+    Ok(Json(response))
+}
+
+async fn matchmaking_cancel(
+    State(state): State<AppState>,
+    Extension(user): Extension<AuthenticatedUser>,
+) -> Json<MatchmakingQueueResponse> {
+    Json(state.matchmaking.cancel(&user.profile.sub).await)
 }
 
 async fn mission_progress_list(
@@ -454,6 +488,36 @@ enum MissionProgressRouteError {
 #[derive(Debug)]
 enum MatchSocketRouteError {
     InvalidMatchId,
+}
+
+#[derive(Debug)]
+enum MatchmakingRouteError {
+    Database(sqlx::Error),
+}
+
+impl From<MatchmakingError> for MatchmakingRouteError {
+    fn from(error: MatchmakingError) -> Self {
+        match error {
+            MatchmakingError::Database(error) => Self::Database(error),
+        }
+    }
+}
+
+impl IntoResponse for MatchmakingRouteError {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::Database(error) => {
+                error!(?error, "matchmaking database operation failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "matchmaking unavailable",
+                    }),
+                )
+                    .into_response()
+            }
+        }
+    }
 }
 
 impl From<MatchSessionError> for MatchSocketRouteError {
