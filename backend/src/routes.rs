@@ -10,7 +10,6 @@ use axum::{
     Extension, Json, Router,
 };
 use futures_util::{SinkExt, StreamExt};
-use serde_json::{json, Value};
 use sqlx::PgPool;
 use tower_http::trace::TraceLayer;
 use tracing::{error, info};
@@ -184,6 +183,25 @@ async fn match_socket(
 ) -> Result<axum::response::Response, MatchSocketRouteError> {
     validate_match_id(&match_id)?;
 
+    let participant = sqlx::query_scalar::<_, bool>(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM match_participants
+            WHERE match_id::text = $1 AND user_sub = $2
+        )
+        "#,
+    )
+    .bind(&match_id)
+    .bind(&user.profile.sub)
+    .fetch_one(&state.database)
+    .await
+    .map_err(MatchSocketRouteError::Database)?;
+
+    if !participant {
+        return Err(MatchSocketRouteError::Forbidden);
+    }
+
     let registry = state.match_sessions.clone();
     let user_sub = user.profile.sub.clone();
 
@@ -290,7 +308,7 @@ async fn handle_match_socket(
     };
 
     info!(%match_id, %user_sub, "match socket connected");
-    run_match_socket(socket, subscription).await;
+    run_match_socket(socket, registry.clone(), subscription).await;
 
     if let Err(error) = registry.disconnect(&match_id, &user_sub).await {
         error!(?error, %match_id, %user_sub, "failed to clean up match socket session");
@@ -299,7 +317,11 @@ async fn handle_match_socket(
     info!(%match_id, %user_sub, "match socket disconnected");
 }
 
-async fn run_match_socket(socket: WebSocket, subscription: MatchSessionSubscription) {
+async fn run_match_socket(
+    socket: WebSocket,
+    registry: MatchSessionRegistry,
+    subscription: MatchSessionSubscription,
+) {
     let match_id = subscription.match_id.clone();
     let user_sub = subscription.user_sub.clone();
     let channel_tx = subscription.sender.clone();
@@ -329,7 +351,7 @@ async fn run_match_socket(socket: WebSocket, subscription: MatchSessionSubscript
                     continue;
                 }
 
-                match subscription.player_message(client_socket_payload(&text)) {
+                match registry.handle_client_message(&match_id, &user_sub, &text).await {
                     Ok(event) => {
                         let _ = channel_tx.send(event);
                     }
@@ -355,10 +377,6 @@ async fn run_match_socket(socket: WebSocket, subscription: MatchSessionSubscript
     }
 
     outbound_task.abort();
-}
-
-fn client_socket_payload(text: &str) -> Value {
-    serde_json::from_str(text).unwrap_or_else(|_| json!({ "text": text }))
 }
 
 fn send_match_socket_error(
@@ -487,6 +505,8 @@ enum MissionProgressRouteError {
 
 #[derive(Debug)]
 enum MatchSocketRouteError {
+    Database(sqlx::Error),
+    Forbidden,
     InvalidMatchId,
 }
 
@@ -535,6 +555,23 @@ impl From<MatchSessionError> for MatchSocketRouteError {
 impl IntoResponse for MatchSocketRouteError {
     fn into_response(self) -> axum::response::Response {
         match self {
+            Self::Database(error) => {
+                error!(?error, "match socket participant validation failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: "match socket unavailable",
+                    }),
+                )
+                    .into_response()
+            }
+            Self::Forbidden => (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "match access denied",
+                }),
+            )
+                .into_response(),
             Self::InvalidMatchId => (
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
