@@ -166,6 +166,28 @@ a {
   color: #a23b42;
 }
 
+.ai-readout {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 3px 8px;
+  min-width: 146px;
+  border: 1px solid rgb(76 45 57 / 48%);
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: #241c22;
+  background: rgb(255 242 234 / 90%);
+  box-shadow: 0 8px 18px rgb(23 35 45 / 18%);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.05;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.ai-readout strong {
+  color: #9b3c42;
+}
+
 .shot-result-readout {
   min-width: 112px;
   border: 1px solid rgb(23 35 45 / 45%);

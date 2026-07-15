@@ -16,9 +16,10 @@ export type ProjectileResolution =
       kind: 'target-hit';
     };
 
-export function resolveProjectileShot(pose: TankPose): ProjectileResolution {
+export function resolveProjectileShot(pose: TankPose, targetPose?: TankPose): ProjectileResolution {
   const start = projectileMuzzlePosition(pose);
-  const path = evaluateProjectilePath(start, DEFAULT_SIGHT_END, 0.08);
+  const targetPosition = targetPose?.position ?? DEFAULT_SIGHT_END;
+  const path = evaluateProjectilePath(start, targetPosition, 0.08);
 
   if (!path.clear && path.hit && path.hit.distance < path.distance - 0.35) {
     return {
@@ -28,17 +29,18 @@ export function resolveProjectileShot(pose: TankPose): ProjectileResolution {
     };
   }
 
-  const targetHeading = bearingToPoint(DEFAULT_SIGHT_END, pose.position);
+  const targetHeading = targetPose?.heading ?? bearingToPoint(DEFAULT_SIGHT_END, pose.position);
+  const targetTurretHeading = targetPose?.turretHeading ?? targetHeading;
   const armor = calculateArmorAngle({
     hullHeading: targetHeading,
     incomingFireOrigin: pose.position,
-    tankPosition: DEFAULT_SIGHT_END,
-    turretHeading: targetHeading,
+    tankPosition: targetPosition,
+    turretHeading: targetTurretHeading,
   });
 
   return {
     damage: calculateDamageMitigation(armor, BASE_SHELL_DAMAGE),
-    impactPoint: DEFAULT_SIGHT_END,
+    impactPoint: targetPosition,
     kind: 'target-hit',
   };
 }
