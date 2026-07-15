@@ -68,6 +68,103 @@ a {
   pointer-events: none;
 }
 
+.mission-panel-shell {
+  pointer-events: none;
+}
+
+.mission-panel {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: grid;
+  gap: 8px;
+  width: min(320px, calc(100% - 28px));
+  border: 1px solid rgb(23 35 45 / 42%);
+  border-radius: 6px;
+  padding: 11px 12px;
+  color: #17232d;
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 8px 20px rgb(23 35 45 / 17%);
+}
+
+.mission-panel div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.mission-panel span,
+.mission-panel p,
+.mission-sequence {
+  margin: 0;
+}
+
+.mission-panel span {
+  color: #5b6872;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.mission-panel strong {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.mission-panel p {
+  color: #33424c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.28;
+}
+
+.mission-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mission-meta span {
+  border: 1px solid rgb(23 35 45 / 18%);
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: rgb(248 243 216 / 76%);
+}
+
+.mission-sequence {
+  display: flex;
+  gap: 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.mission-dot {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgb(23 35 45 / 24%);
+  border-radius: 50%;
+  color: #51616d;
+  background: rgb(255 255 255 / 70%);
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.mission-dot-active {
+  border-color: #b8381f;
+  color: #fff;
+  background: #b8381f;
+}
+
+.mission-dot-complete {
+  border-color: #1f7a5b;
+  color: #fff;
+  background: #1f7a5b;
+}
+
 .combat-hud {
   position: absolute;
   right: 14px;
