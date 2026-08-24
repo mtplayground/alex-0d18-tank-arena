@@ -671,6 +671,44 @@ h1 {
   max-width: 10ch;
 }
 
+.auth-status-notice {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgb(162 59 66 / 42%);
+  border-radius: 6px;
+  padding: 11px 12px;
+  color: #51292c;
+  background: #fff3f1;
+}
+
+.auth-status-notice > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.auth-status-notice p {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.auth-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.auth-status-actions .secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 10px;
+  color: #0f5e71;
+  text-decoration: none;
+}
+
 .dashboard-panel h1 {
   overflow-wrap: anywhere;
   font-size: clamp(1.7rem, 3vw, 2.8rem);

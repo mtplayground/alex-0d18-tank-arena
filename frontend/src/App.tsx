@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
 import { useAuth } from './auth/useAuth';
+import { AuthenticationStatusNotice } from './components/AuthenticationStatusNotice';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PlayableGameScene } from './components/PlayableGameScene';
 import { ScenePreview } from './components/ScenePreview';
@@ -22,7 +23,7 @@ export function App() {
   }
 
   if (auth.status === 'error') {
-    return <AuthShell mode={requestedMode} error={auth.message} />;
+    return <AuthShell mode={requestedMode} />;
   }
 
   return <AuthShell mode={requestedMode} />;
@@ -45,7 +46,7 @@ function LoadingScreen() {
   );
 }
 
-function AuthShell({ mode, error }: { mode: AuthMode; error?: string }) {
+function AuthShell({ mode }: { mode: AuthMode }) {
   return (
     <main className="app-shell">
       <section className="auth-layout">
@@ -53,19 +54,27 @@ function AuthShell({ mode, error }: { mode: AuthMode; error?: string }) {
           <ScenePreview />
         </div>
 
-        <AuthForm mode={mode} error={error} />
+        <AuthForm mode={mode} />
       </section>
     </main>
   );
 }
 
-function AuthForm({ mode, error }: { mode: AuthMode; error?: string }) {
+function AuthForm({ mode }: { mode: AuthMode }) {
   const auth = useAuth();
   const isRegister = mode === 'register';
   const action = isRegister ? auth.registerUrl : auth.loginUrl;
 
   return (
     <section className="auth-panel" aria-labelledby="auth-title">
+      {auth.status === 'unauthenticated' || auth.status === 'error' ? (
+        <AuthenticationStatusNotice
+          failureKind={auth.status === 'error' ? auth.failureKind : undefined}
+          loginUrl={auth.loginUrl}
+          onRetry={() => void auth.refresh()}
+          status={auth.status}
+        />
+      ) : null}
       <p className="eyebrow">{isRegister ? 'Create access' : 'Secure access'}</p>
       <h1 id="auth-title">{isRegister ? 'Register for battle' : 'Enter the arena'}</h1>
       <p className="summary">
@@ -98,8 +107,6 @@ function AuthForm({ mode, error }: { mode: AuthMode; error?: string }) {
           <a href="/register">Create a new profile</a>
         )}
       </nav>
-
-      {error ? <p className="error-text">{error}</p> : null}
     </section>
   );
 }
