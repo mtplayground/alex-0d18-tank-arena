@@ -18,3 +18,4 @@ test-results/
 .pipeline-state.json
 .gitkeep
 .progress
+.deploy_url

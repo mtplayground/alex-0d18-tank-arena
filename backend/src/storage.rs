@@ -1,20 +1,11 @@
-use std::time::Duration;
-
-use aws_config::{BehaviorVersion, Region};
-use aws_credential_types::Credentials;
-use aws_sdk_s3::{presigning::PresigningConfig, Client};
 use thiserror::Error;
 
 use crate::config::ObjectStorageConfig;
 
-const PRESIGN_EXPIRES: Duration = Duration::from_secs(60 * 60);
+const PRESIGN_EXPIRES_IN_SECONDS: u64 = 60 * 60;
 
 #[derive(Clone, Debug)]
-pub struct StorageClient {
-    client: Client,
-    bucket: String,
-    prefix: String,
-}
+pub struct StorageClient;
 
 #[derive(Clone, Copy, Debug)]
 pub struct AssetDefinition {
@@ -65,78 +56,20 @@ pub const GAME_ASSETS: &[AssetDefinition] = &[
 
 #[derive(Debug, Error)]
 pub enum StorageError {
-    #[error("asset key must not be empty")]
-    EmptyKey,
-    #[error("asset key {key:?} is invalid")]
-    InvalidKey { key: String },
-    #[error("failed to create presigning configuration: {0}")]
-    PresignConfig(String),
-    #[error("failed to presign asset {key:?}: {message}")]
-    Presign { key: String, message: String },
+    #[error("object storage is not configured")]
+    Unavailable,
 }
 
 impl StorageClient {
-    pub async fn from_config(config: &ObjectStorageConfig) -> Self {
-        let credentials = Credentials::new(
-            config.access_key_id.as_str(),
-            config.secret_access_key.as_str(),
-            None,
-            None,
-            "object-storage-env",
-        );
-        let sdk_config = aws_config::defaults(BehaviorVersion::latest())
-            .region(Region::new(config.region.clone()))
-            .endpoint_url(config.endpoint.clone())
-            .credentials_provider(credentials)
-            .load()
-            .await;
-        let s3_config = aws_sdk_s3::config::Builder::from(&sdk_config)
-            .force_path_style(config.force_path_style)
-            .build();
-
-        Self {
-            client: Client::from_conf(s3_config),
-            bucket: config.bucket.clone(),
-            prefix: config.prefix.clone(),
-        }
+    pub async fn from_config(_: &ObjectStorageConfig) -> Self {
+        Self
     }
 
-    pub async fn presigned_get_url(&self, relative_key: &str) -> Result<String, StorageError> {
-        let full_key = self.full_key(relative_key)?;
-        let presign_config = PresigningConfig::expires_in(PRESIGN_EXPIRES)
-            .map_err(|error| StorageError::PresignConfig(error.to_string()))?;
-        let request = self
-            .client
-            .get_object()
-            .bucket(&self.bucket)
-            .key(&full_key)
-            .presigned(presign_config)
-            .await
-            .map_err(|error| StorageError::Presign {
-                key: full_key.clone(),
-                message: error.to_string(),
-            })?;
-
-        Ok(request.uri().to_string())
+    pub async fn presigned_get_url(&self, _: &str) -> Result<String, StorageError> {
+        Err(StorageError::Unavailable)
     }
 
     pub fn presign_expires_in_seconds(&self) -> u64 {
-        PRESIGN_EXPIRES.as_secs()
-    }
-
-    fn full_key(&self, relative_key: &str) -> Result<String, StorageError> {
-        let key = relative_key.trim_start_matches('/');
-
-        if key.is_empty() {
-            return Err(StorageError::EmptyKey);
-        }
-
-        if key.contains("..") || key.contains('\\') {
-            return Err(StorageError::InvalidKey {
-                key: relative_key.to_owned(),
-            });
-        }
-
-        Ok(format!("{}{}", self.prefix, key))
+        PRESIGN_EXPIRES_IN_SECONDS
     }
 }

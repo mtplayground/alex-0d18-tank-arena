@@ -34,15 +34,7 @@ pub struct AuthConfig {
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectStorageConfig {
-    pub access_key_id: SecretString,
-    pub secret_access_key: SecretString,
-    pub bucket: String,
-    pub prefix: String,
-    pub endpoint: String,
-    pub region: String,
-    pub force_path_style: bool,
-}
+pub struct ObjectStorageConfig;
 
 #[derive(Clone, Debug)]
 pub enum EmailConfig {
@@ -113,15 +105,7 @@ impl AppConfig {
             mctai_auth_jwks_url: required_env("MCTAI_AUTH_JWKS_URL")?,
             jwt_secret: required_secret("JWT_SECRET")?,
         };
-        let object_storage = ObjectStorageConfig {
-            access_key_id: required_secret("OBJECT_STORAGE_ACCESS_KEY_ID")?,
-            secret_access_key: required_secret("OBJECT_STORAGE_SECRET_ACCESS_KEY")?,
-            bucket: required_env("OBJECT_STORAGE_BUCKET")?,
-            prefix: required_env("OBJECT_STORAGE_PREFIX")?,
-            endpoint: required_env("OBJECT_STORAGE_ENDPOINT")?,
-            region: required_env("OBJECT_STORAGE_REGION")?,
-            force_path_style: required_bool("OBJECT_STORAGE_FORCE_PATH_STYLE")?,
-        };
+        let object_storage = object_storage_config()?;
         let email = email_config()?;
 
         Ok(Self {
@@ -181,16 +165,6 @@ fn optional_env(key: &'static str) -> Result<Option<String>, ConfigError> {
     }
 }
 
-fn required_bool(key: &'static str) -> Result<bool, ConfigError> {
-    let value = required_env(key)?;
-
-    match value.to_ascii_lowercase().as_str() {
-        "true" | "1" | "yes" | "on" => Ok(true),
-        "false" | "0" | "no" | "off" => Ok(false),
-        _ => Err(ConfigError::InvalidBool { key, value }),
-    }
-}
-
 fn email_config() -> Result<EmailConfig, ConfigError> {
     let url = optional_env_allow_empty("MCTAI_EMAIL_URL");
     let app_token = optional_env_allow_empty("MCTAI_EMAIL_APP_TOKEN");
@@ -203,6 +177,10 @@ fn email_config() -> Result<EmailConfig, ConfigError> {
         (None, None) => Ok(EmailConfig::Disabled),
         _ => Err(ConfigError::IncompleteEmailConfig),
     }
+}
+
+fn object_storage_config() -> Result<ObjectStorageConfig, ConfigError> {
+    Ok(ObjectStorageConfig)
 }
 
 fn optional_env_allow_empty(key: &'static str) -> Option<String> {

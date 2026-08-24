@@ -5,16 +5,20 @@ use axum::{
     },
     http::{
         header::{ACCEPT, CONTENT_TYPE, HOST},
-        HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri,
+        request::Parts, HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri,
     },
     middleware::from_fn_with_state,
     response::{IntoResponse, Redirect},
-    routing::{get, post, put},
+    routing::{any, get, post, put},
     Extension, Json, Router,
 };
 use futures_util::{SinkExt, StreamExt};
 use sqlx::PgPool;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{
+    cors::{AllowOrigin, CorsLayer},
+    services::{ServeDir, ServeFile},
+    trace::TraceLayer,
+};
 use tracing::{error, info, warn};
 
 use backend::auth::AuthClient;
@@ -94,7 +98,11 @@ pub fn router(
         .route("/api/assets/manifest", get(asset_manifest))
         .route("/api/assets/:category/:asset_id", get(asset_redirect))
         .merge(protected_routes)
-        .fallback(not_found)
+        .route("/api/*path", any(api_not_found))
+        .fallback_service(
+            ServeDir::new("frontend/dist")
+                .not_found_service(ServeFile::new("frontend/dist/index.html")),
+        )
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
@@ -105,7 +113,7 @@ pub fn router(
 }
 
 fn configured_cors_layer(origin: Option<&str>) -> Option<CorsLayer> {
-    let origin = match origin {
+    let configured_origin = match origin {
         Some(origin) => match cors_origin_header(origin) {
             Ok(origin) => origin,
             Err(reason) => {
@@ -119,7 +127,9 @@ fn configured_cors_layer(origin: Option<&str>) -> Option<CorsLayer> {
         }
     };
 
-    info!(origin = %origin.to_str().unwrap_or("[invalid header value]"), "CORS enabled for configured origin");
+    info!(origin = %configured_origin.to_str().unwrap_or("[invalid header value]"), "CORS enabled for configured origin and the proxied public host");
+
+    let configured_origin_for_predicate = configured_origin.clone();
 
     Some(
         CorsLayer::new()
@@ -132,8 +142,43 @@ fn configured_cors_layer(origin: Option<&str>) -> Option<CorsLayer> {
                 Method::DELETE,
                 Method::OPTIONS,
             ])
-            .allow_origin(origin),
+            .allow_origin(AllowOrigin::predicate(move |origin, request_parts| {
+                origin == configured_origin_for_predicate
+                    || origin_matches_public_host(origin, request_parts)
+            })),
     )
+}
+
+fn origin_matches_public_host(origin: &HeaderValue, request_parts: &Parts) -> bool {
+    let origin_host = match origin.to_str().ok().and_then(url_host) {
+        Some(host) => host,
+        None => return false,
+    };
+    let forwarded_host = HeaderName::from_static("x-forwarded-host");
+    let public_host = request_parts
+        .headers
+        .get(&forwarded_host)
+        .or_else(|| request_parts.headers.get(HOST))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(normalize_host);
+
+    public_host
+        .as_deref()
+        .is_some_and(|public_host| origin_host == public_host)
+}
+
+fn url_host(value: &str) -> Option<String> {
+    let uri = value.parse::<Uri>().ok()?;
+    if !matches!(uri.scheme_str(), Some("http" | "https")) {
+        return None;
+    }
+
+    uri.authority().map(|authority| normalize_host(authority.as_str()))
+}
+
+fn normalize_host(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
 }
 
 fn cors_origin_header(configured_origin: &str) -> Result<HeaderValue, &'static str> {
@@ -506,20 +551,20 @@ fn send_match_socket_error(
     }
 }
 
-async fn not_found() -> impl IntoResponse {
-    (
-        StatusCode::NOT_FOUND,
-        Json(ErrorResponse {
-            error: "route not found",
-        }),
-    )
-}
-
 async fn method_not_allowed() -> impl IntoResponse {
     (
         StatusCode::METHOD_NOT_ALLOWED,
         Json(ErrorResponse {
             error: "method not allowed",
+        }),
+    )
+}
+
+async fn api_not_found() -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ErrorResponse {
+            error: "route not found",
         }),
     )
 }
