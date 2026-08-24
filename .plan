@@ -1,42 +1,30 @@
-Architecture plan: authentication, scene separation, and resilience (#63–#73)
+Architecture plan: GET-based authentication redirects and regression coverage (#85–#87)
 
 Current architecture
-- `frontend/src/App.tsx` selects unauthenticated auth screens or the authenticated dashboard from `AuthProvider`; both currently mount `components/ScenePreview.tsx`.
-- `ScenePreview` currently mounts the full `TankMovementController`, which transitively starts the mission runner, input listeners, AI, projectiles, HUD, and mission screens. `TerrainRenderer` owns the optional asset-manifest request and already has procedural terrain as its render fallback.
-- `frontend/src/api/client.ts` is the HTTP/WebSocket boundary and `shared/protocol.ts` contains browser-visible API DTOs. Backend routes live in `backend/src/routes.rs` and have proxy-aware public-origin derivation, but no CORS layer.
-- Playwright E2E tests intercept frontend API and WebSocket traffic in `tests/e2e/`; they are the right level for auth-screen isolation and CTA behavior.
+- `frontend/src/App.tsx` renders the unauthenticated `AuthForm` for `/` and `/register`; it currently posts the Google CTA form to the shared `auth.loginUrl` (`/api/auth/login`). The secondary register path is an in-app link, while the register screen currently also reuses the login endpoint.
+- `frontend/src/auth/AuthProvider.tsx` exposes a single `loginUrl` from `frontend/src/api/client.ts`; `AuthenticationStatusNotice.tsx` already presents session-fetch failures but has no state for a redirect-start failure.
+- `backend/src/routes.rs` registers both `GET` and `POST` for `/api/auth/login` and `/api/auth/register`. `auth_redirect` derives the proxy-aware `return_to` URL and `backend/src/auth.rs` creates the configured platform login URL.
+- `tests/e2e/auth-preview.spec.ts` intercepts `/api/auth/login` and currently asserts POST. The test suite has Playwright routing helpers and is the appropriate place to assert browser navigation methods and redirect chains.
 
-Module structure and file organization
-- Keep `ScenePreview.tsx` as the lightweight, unauthenticated `ArenaPreview` (or rename/export it accordingly): Canvas, lighting, `TerrainRenderer`, a static tank model/presentation, and a passive camera only. It must not import `TankMovementController` or `useMissionRunner`.
-- Add a separate authenticated `PlayableArena` scene container under `frontend/src/components/` (or a colocated `GameScene.tsx`). It owns the Canvas, scene lifecycle state, retry key, and the existing interactive `TankMovementController`/`CameraRig` subtree. This creates an explicit capability boundary rather than feature flags spread through gameplay code.
-- Extract reusable visual-only tank geometry from `TankMovementController.tsx` into a terrain/component-level presentation module if both scene variants need it. Gameplay-only components remain in `frontend/src/terrain/`: movement, AI, projectiles, combat HUD, mission runner, and mission screens.
-- Add focused UI infrastructure under `frontend/src/components/`: an authenticated-home React error boundary, a scene loading/error overlay, and an API/request error notice. These components receive concise state and retry callbacks; they do not own API calls or game state.
-- Keep authentication classifications in `frontend/src/auth/types.ts` and map fetch failures centrally in `frontend/src/api/client.ts`/`AuthProvider.tsx`. Model unauthenticated, network/timeout, and server failures distinctly, while retaining `refresh`, login, and registration redirect URLs.
-- Keep `TerrainRenderer.tsx` and `useAssetManifest.ts` responsible for optional asset enrichment only. Expand their state to distinguish loading, manifest failure, and per-resource load failure; procedural terrain remains mounted for every state and a non-blocking notice is surfaced by the scene container.
-- Change `MissionScreens.tsx` and `TankMovementController.tsx` so mission selection is controlled by an explicit open/close state. Default to closed on entry to `PlayableArena`; include an accessible launch control, close control, and a non-fullscreen/panel presentation that keeps the 3D scene visible. Preserve existing mission progression/persistence behavior once the panel is opened.
-- In `backend/src/routes.rs`, add a CORS-layer constructor driven by `AppConfig.server.allowed_cors_origin`; add the `tower-http` `cors` feature in `backend/Cargo.toml`. When configured, permit exactly the parsed configured origin, credentials, required methods, and headers. When absent, do not attach permissive CORS (same-origin remains the safe/default behavior). Apply it at the outer router so preflight HTTP requests are handled and WebSocket upgrade requests receive compatible origin headers. Continue using `X-Forwarded-Host`/`X-Forwarded-Proto` for public redirect URLs, never the rewritten host as an authority decision.
-
-Shared types and behavioral contracts
-- Scene mode is structural: preview has no gameplay hooks or controls; playable is only rendered after `auth.status === 'authenticated'`. This guarantees no pre-auth mission-progress reads/writes or local mission state, instead of relying only on disabled controls.
-- Define request-error categories as a small frontend type (for example `unauthenticated`, `network`, `server`) with user-safe text and available recovery actions. Do not add backend error details to public UI.
-- Asset state remains optional: `ready` can enrich terrain, while `loading` and `error` render procedural geometry. Resource loader failures must resolve to the same fallback instead of throwing out of the Canvas.
-- Error boundaries log the original caught error and component stack to `console.error`, show a readable fallback, and retry by remounting only the failed scene subtree. The dashboard profile and multiplayer panel must stay mounted when the scene fails.
-- Login and registration are platform-auth redirects only. Remove the unused email field and use the exact CTA `Continue with Google`; retain `Create a new profile` as the secondary registration path. No Google OAuth implementation belongs in this repository.
+Module structure and shared contracts
+- Keep route URL construction in `frontend/src/api/client.ts`, but expose distinct `loginRedirectUrl()` and `registerRedirectUrl()` helpers (or a typed `AuthEntryKind`) so the two CTAs cannot accidentally share the wrong backend path.
+- Change `AuthForm` to semantic anchors (preferred) or GET-only forms. Login uses `/api/auth/login`; the registration CTA on `/register` uses `/api/auth/register`. Both are browser navigations, not `fetch`, preserving the external platform redirect and cookie flow.
+- Keep `AuthProvider` responsible for session state only. Add a narrow redirect-error state sourced from a safe URL query parameter or explicit backend failure response; pass that state to `AuthenticationStatusNotice` alongside its existing network/server session errors. Error text remains generic and never exposes platform tokens or URLs.
+- In `backend/src/auth.rs`, centralize platform-start URL construction and any redirect validation/result type. In `backend/src/routes.rs`, make login/register GET-only, use the existing forwarded-host/proto `return_to` calculation, and log redirect target/status through `tracing` with secrets excluded.
+- Add a same-origin UI fallback route/query contract for redirect-start failures (for example `/login?auth_error=unavailable` and `/register?auth_error=unavailable`). A backend-detected non-redirect platform response must navigate back to that UI rather than leave a raw API error page. Preserve the selected entry mode and retry URL.
 
 Issue order and dependencies
-1. #63 split shared `ScenePreview` into preview and playable scene variants. This is the foundational capability boundary.
-2. #64 enforce preview isolation by construction: no keyboard/gameplay subtree, AI, HUD, mission UI, mission-runner state, or progress traffic. Depends on #63.
-3. #65 make the auth card the visual primary path and leave the preview as background/secondary content. Depends on #64.
-4. #71 align both auth routes with the platform redirect contract and exact CTA/secondary-link copy. It can ship alongside #65, but should be completed before auth-screen E2E coverage.
-5. #66 add the authenticated-home error boundary and partial fallback shell. It should precede scene-specific failure work.
-6. #67 add playable-scene loading, failure, and retry handling inside the boundary. Depends on #66.
-7. #68 make asset manifest and signed-resource failures non-blocking and visibly degraded. Depends on #67.
-8. #69 classify authenticated session/API failures and render recovery actions in the auth/dashboard shell. Depends on #66; coordinate copy and retry behavior with #67.
-9. #70 make mission selection an explicit toggleable in-game panel. Depends on #63; preserve existing mission persistence and result transitions.
-10. #72 independently add credentialed, configured-origin CORS to the Axum router and test preflight/cookie behavior. It has no frontend dependency but should be validated against proxy-aware deployment assumptions.
-11. #73 add unauthenticated E2E coverage after #63/#64/#71, and update stale button expectations in existing solo tests. Assert no mission-progress calls, no HUD/mission-select DOM, no gameplay input effect, and exact CTA form submission/redirect behavior.
+1. #85 is foundational: replace CTA POST submissions with GET navigation, map register to `/api/auth/register`, and remove POST route handlers. Verify POST receives an intentional 405/Allow response rather than entering the platform redirect flow.
+2. #86 depends on #85. Add a typed redirect-start failure path, readable login/register notice, retry link, and structured server logging of safe target/status metadata. Do not introduce app OAuth, app JWTs, or credentials.
+3. #87 depends on #85 and should cover the final browser contract. Update existing POST expectations to GET, then add redirect-chain tests for login and registration with every intercepted hop asserted as GET and with no 405 response.
+
+Key design decisions
+- Use real document navigation for authentication, never a client-side POST/fetch flow. This is required for cross-origin platform redirects and cookies.
+- A browser cannot render an app fallback after a downstream cross-origin navigation failure unless the app detects failure before redirecting or the platform returns to the supplied `return_to`. Treat this return-to error handoff as an explicit, sanitized contract; log status/target only on the server.
+- The API must not silently accept POST once #85 ships. Restrict routes to GET so method regressions are visible as 405 and caught by #87.
+- Preserve `return_to` generation from `X-Forwarded-Host`/`X-Forwarded-Proto` and do not relax CORS or introduce direct Google OAuth.
 
 Validation strategy
-- For each frontend issue run `npm run lint` and the relevant Playwright spec; run the full `npm run build` before final integration.
-- For #72 run `cargo check --workspace --all-targets`; add focused route/CORS tests where feasible and manually verify that absence of `ALLOWED_CORS_ORIGIN` does not emit wildcard credentialed CORS headers.
-- Use Playwright route counters and DOM assertions for pre-auth guarantees; mock manifest failure and resource failure to verify the 3D fallback does not disable dashboard or multiplayer interaction.
+- #85: `npm run lint`, frontend build, `cargo build --workspace`, and focused E2E asserting CTA anchor/form method and backend GET routes.
+- #86: unit/route tests for each redirect failure classification and Playwright UI checks for the readable notice and retry action; inspect logs without printing secrets.
+- #87: run the auth-preview spec against a deterministic mock platform redirect chain, record every request method/status, and run the full E2E suite when Chromium is available.
