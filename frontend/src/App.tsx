@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
 import { useAuth } from './auth/useAuth';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { PlayableGameScene } from './components/PlayableGameScene';
 import { ScenePreview } from './components/ScenePreview';
 import { MultiplayerDuelPanel } from './multiplayer/MultiplayerDuelPanel';
@@ -17,7 +18,7 @@ export function App() {
   }
 
   if (auth.status === 'authenticated') {
-    return <AuthenticatedHome />;
+    return <AuthenticatedHomeBoundary />;
   }
 
   if (auth.status === 'error') {
@@ -25,6 +26,14 @@ export function App() {
   }
 
   return <AuthShell mode={requestedMode} />;
+}
+
+function AuthenticatedHomeBoundary() {
+  return (
+    <ErrorBoundary fallback={(retry) => <DashboardRecovery onRetry={retry} />}>
+      <AuthenticatedHome />
+    </ErrorBoundary>
+  );
 }
 
 function LoadingScreen() {
@@ -108,7 +117,9 @@ function AuthenticatedHome() {
     <main className="app-shell">
       <section className="dashboard-layout">
         <div className="scene-panel dashboard-scene" aria-label="Playable 3D arena">
-          <PlayableGameScene />
+          <ErrorBoundary fallback={(retry) => <ArenaRecovery onRetry={retry} />}>
+            <PlayableGameScene />
+          </ErrorBoundary>
         </div>
 
         <section className="dashboard-panel" aria-labelledby="dashboard-title">
@@ -152,10 +163,53 @@ function AuthenticatedHome() {
             </button>
           </div>
 
-          <MultiplayerDuelPanel user={auth.user} />
+          <ErrorBoundary fallback={(retry) => <MultiplayerRecovery onRetry={retry} />}>
+            <MultiplayerDuelPanel user={auth.user} />
+          </ErrorBoundary>
         </section>
       </section>
     </main>
+  );
+}
+
+function DashboardRecovery({ onRetry }: { onRetry: () => void }) {
+  return (
+    <main className="app-shell">
+      <section className="dashboard-recovery" role="alert" aria-live="assertive">
+        <p className="eyebrow">Workspace unavailable</p>
+        <h1>We could not load your dashboard.</h1>
+        <p className="summary">Your session is still active. Retry to restore the dashboard.</p>
+        <button className="primary-action" type="button" onClick={onRetry}>
+          Retry dashboard
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function ArenaRecovery({ onRetry }: { onRetry: () => void }) {
+  return (
+    <section className="scene-recovery" role="alert" aria-live="assertive">
+      <p className="eyebrow">Arena unavailable</p>
+      <h2>We could not load the playable arena.</h2>
+      <p>Other dashboard controls remain available.</p>
+      <button className="secondary-action" type="button" onClick={onRetry}>
+        Retry arena
+      </button>
+    </section>
+  );
+}
+
+function MultiplayerRecovery({ onRetry }: { onRetry: () => void }) {
+  return (
+    <section className="multiplayer-recovery" role="alert" aria-live="assertive">
+      <p className="eyebrow">Duel station unavailable</p>
+      <h2>We could not load multiplayer.</h2>
+      <p className="summary">Your profile and the playable arena can still be used.</p>
+      <button className="secondary-action" type="button" onClick={onRetry}>
+        Retry multiplayer
+      </button>
+    </section>
   );
 }
 
