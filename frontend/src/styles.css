@@ -90,6 +90,31 @@ a {
   height: 100%;
 }
 
+.playable-scene-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+}
+
+.scene-loading {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  gap: 14px;
+  place-items: center;
+  align-content: center;
+  color: #33424c;
+  background: linear-gradient(145deg, #edf4f6, #d9e1e4);
+  pointer-events: none;
+}
+
+.scene-loading p {
+  margin: 0;
+  font-weight: 800;
+}
+
 .auth-scene {
   position: absolute;
   z-index: 0;
