@@ -63,7 +63,6 @@ function AuthShell({ mode }: { mode: AuthMode }) {
 function AuthForm({ mode }: { mode: AuthMode }) {
   const auth = useAuth();
   const isRegister = mode === 'register';
-  const action = isRegister ? auth.registerUrl : auth.loginUrl;
 
   return (
     <section className="auth-panel" aria-labelledby="auth-title">
@@ -83,20 +82,9 @@ function AuthForm({ mode }: { mode: AuthMode }) {
           : 'Sign in to continue into your player dashboard and mission workspace.'}
       </p>
 
-      <form className="auth-form" action={action} method="post">
-        <label>
-          <span>Email</span>
-          <input
-            autoComplete="email"
-            inputMode="email"
-            name="email"
-            placeholder="pilot@example.com"
-            type="email"
-          />
-        </label>
-
+      <form className="auth-form" action={auth.loginUrl} method="post">
         <button className="primary-action" type="submit">
-          {isRegister ? 'Continue registration' : 'Continue sign in'}
+          Continue with Google
         </button>
       </form>
 

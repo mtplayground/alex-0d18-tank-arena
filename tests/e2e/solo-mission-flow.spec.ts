@@ -40,7 +40,7 @@ test('solo mission flow logs in, completes an AI engagement, and saves progress'
   await page.goto('/');
 
   await expect(page.getByRole('heading', { name: 'Enter the arena' })).toBeVisible();
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Continue with Google' }).click();
 
   await expect(page.getByText('Welcome back, Solo Pilot!')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Choose mission' })).toBeVisible();
