@@ -13,6 +13,7 @@ import type {
 } from '../../../shared/protocol';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
+const ASSET_MANIFEST_TIMEOUT_MS = 8_000;
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
   const response = await fetch(`${API_BASE_URL}/api/health`, { signal });
@@ -44,13 +45,35 @@ export async function fetchCurrentSession(
 }
 
 export async function fetchAssetManifest(signal?: AbortSignal): Promise<AssetManifestResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/assets/manifest`, { signal });
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(() => timeoutController.abort(), ASSET_MANIFEST_TIMEOUT_MS);
+  const abortForCaller = () => timeoutController.abort();
 
-  if (!response.ok) {
-    throw new Error(`Asset manifest failed with status ${response.status}`);
+  if (signal?.aborted) {
+    abortForCaller();
   }
+  signal?.addEventListener('abort', abortForCaller, { once: true });
 
-  return response.json() as Promise<AssetManifestResponse>;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/assets/manifest`, {
+      signal: timeoutController.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Asset manifest failed with status ${response.status}`);
+    }
+
+    return response.json() as Promise<AssetManifestResponse>;
+  } catch (error) {
+    if (timeoutController.signal.aborted && !signal?.aborted) {
+      throw new Error('Asset manifest request timed out');
+    }
+
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', abortForCaller);
+  }
 }
 
 export async function fetchMissionProgress(

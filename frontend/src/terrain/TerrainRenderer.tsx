@@ -31,7 +31,7 @@ import {
   evaluateProjectilePath,
   type LineOfSightResult,
 } from './occlusion';
-import { useAssetManifest } from './useAssetManifest';
+import type { AssetManifestState } from './useAssetManifest';
 import { TACTICAL_COLORS } from './visualStyle';
 
 type TerrainAssetUrls = {
@@ -39,24 +39,28 @@ type TerrainAssetUrls = {
   terrainTextureUrl?: string;
 };
 
-export function TerrainRenderer() {
-  const manifest = useAssetManifest();
+type TerrainRendererProps = {
+  assetManifest: AssetManifestState;
+  onAssetUnavailable: () => void;
+};
+
+export function TerrainRenderer({ assetManifest, onAssetUnavailable }: TerrainRendererProps) {
   const urls = useMemo<TerrainAssetUrls>(() => {
-    if (manifest.status !== 'ready') {
+    if (assetManifest.status !== 'ready') {
       return {};
     }
 
     return {
-      terrainModelUrl: manifest.manifest.assets.find(
+      terrainModelUrl: assetManifest.manifest.assets.find(
         (asset) => asset.category === 'terrain' && asset.id === 'training-grounds',
       )?.url,
-      terrainTextureUrl: manifest.manifest.assets.find(
+      terrainTextureUrl: assetManifest.manifest.assets.find(
         (asset) => asset.category === 'textures' && asset.id === 'terrain-albedo',
       )?.url,
     };
-  }, [manifest]);
-  const terrainModel = useStoredTerrainModel(urls.terrainModelUrl);
-  const terrainTexture = useStoredTerrainTexture(urls.terrainTextureUrl);
+  }, [assetManifest]);
+  const terrainModel = useStoredTerrainModel(urls.terrainModelUrl, onAssetUnavailable);
+  const terrainTexture = useStoredTerrainTexture(urls.terrainTextureUrl, onAssetUnavailable);
   const fallbackGeometry = useMemo(() => createTerrainGeometry(), []);
   const rubblePieces = useMemo(createRubblePieces, []);
   const structures = useMemo(createStructures, []);
@@ -64,6 +68,12 @@ export function TerrainRenderer() {
     () => evaluateProjectilePath(DEFAULT_SIGHT_START, DEFAULT_SIGHT_END, 0.08),
     [],
   );
+
+  useEffect(() => {
+    if (assetManifest.status === 'ready' && (!urls.terrainModelUrl || !urls.terrainTextureUrl)) {
+      onAssetUnavailable();
+    }
+  }, [assetManifest.status, onAssetUnavailable, urls.terrainModelUrl, urls.terrainTextureUrl]);
 
   return (
     <group>
@@ -225,7 +235,7 @@ function Structures({ pieces }: { pieces: StructurePiece[] }) {
   );
 }
 
-function useStoredTerrainModel(url?: string): Group | null {
+function useStoredTerrainModel(url: string | undefined, onFailure: () => void): Group | null {
   const [model, setModel] = useState<Group | null>(null);
 
   useEffect(() => {
@@ -257,9 +267,11 @@ function useStoredTerrainModel(url?: string): Group | null {
         setModel(gltf.scene);
       },
       undefined,
-      () => {
+      (error) => {
+        console.warn('Terrain model failed to load; using procedural terrain.', error);
         if (!cancelled) {
           setModel(null);
+          onFailure();
         }
       },
     );
@@ -271,12 +283,12 @@ function useStoredTerrainModel(url?: string): Group | null {
       }
       setModel(null);
     };
-  }, [url]);
+  }, [onFailure, url]);
 
   return model;
 }
 
-function useStoredTerrainTexture(url?: string): Texture | null {
+function useStoredTerrainTexture(url: string | undefined, onFailure: () => void): Texture | null {
   const [texture, setTexture] = useState<Texture | null>(null);
 
   useEffect(() => {
@@ -305,9 +317,11 @@ function useStoredTerrainTexture(url?: string): Texture | null {
         setTexture(nextTexture);
       },
       undefined,
-      () => {
+      (error) => {
+        console.warn('Terrain texture failed to load; using procedural terrain.', error);
         if (!cancelled) {
           setTexture(null);
+          onFailure();
         }
       },
     );
@@ -319,7 +333,7 @@ function useStoredTerrainTexture(url?: string): Texture | null {
       }
       setTexture(null);
     };
-  }, [url]);
+  }, [onFailure, url]);
 
   return texture;
 }
