@@ -3,7 +3,10 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         Path, State,
     },
-    http::{header::HOST, HeaderMap, HeaderName, StatusCode},
+    http::{
+        header::{ACCEPT, CONTENT_TYPE, HOST},
+        HeaderMap, HeaderName, HeaderValue, Method, StatusCode, Uri,
+    },
     middleware::from_fn_with_state,
     response::{IntoResponse, Redirect},
     routing::{get, post, put},
@@ -11,7 +14,7 @@ use axum::{
 };
 use futures_util::{SinkExt, StreamExt};
 use sqlx::PgPool;
-use tower_http::trace::TraceLayer;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{error, info, warn};
 
 use backend::auth::AuthClient;
@@ -52,6 +55,7 @@ pub fn router(
     auth: AuthClient,
     email: EmailClient,
 ) -> Router {
+    let cors = configured_cors_layer(config.server.allowed_cors_origin.as_deref());
     let state = AppState::new(config, storage, database, auth, email);
     let protected_routes = Router::new()
         .route("/api/auth/me", get(auth_me))
@@ -74,7 +78,7 @@ pub fn router(
         .route("/api/ws/matches/:match_id", get(match_socket))
         .route_layer(from_fn_with_state(state.clone(), require_auth));
 
-    Router::new()
+    let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/status", get(status))
         .route("/api/auth/login", get(auth_redirect).post(auth_redirect))
@@ -92,7 +96,65 @@ pub fn router(
         .merge(protected_routes)
         .fallback(not_found)
         .layer(TraceLayer::new_for_http())
-        .with_state(state)
+        .with_state(state);
+
+    match cors {
+        Some(cors) => app.layer(cors),
+        None => app,
+    }
+}
+
+fn configured_cors_layer(origin: Option<&str>) -> Option<CorsLayer> {
+    let origin = match origin {
+        Some(origin) => match cors_origin_header(origin) {
+            Ok(origin) => origin,
+            Err(reason) => {
+                warn!(%reason, "ALLOWED_CORS_ORIGIN is invalid; cross-origin requests are disabled");
+                return None;
+            }
+        },
+        None => {
+            info!("ALLOWED_CORS_ORIGIN is not configured; cross-origin requests are disabled");
+            return None;
+        }
+    };
+
+    info!(origin = %origin.to_str().unwrap_or("[invalid header value]"), "CORS enabled for configured origin");
+
+    Some(
+        CorsLayer::new()
+            .allow_credentials(true)
+            .allow_headers([ACCEPT, CONTENT_TYPE])
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_origin(origin),
+    )
+}
+
+fn cors_origin_header(configured_origin: &str) -> Result<HeaderValue, &'static str> {
+    let origin = configured_origin.trim_end_matches('/');
+    let uri = origin
+        .parse::<Uri>()
+        .map_err(|_| "origin must be a valid HTTP(S) URL")?;
+
+    if !matches!(uri.scheme_str(), Some("http" | "https")) || uri.authority().is_none() {
+        return Err("origin must include an HTTP(S) scheme and host");
+    }
+
+    if let Some(path_and_query) = uri.path_and_query() {
+        if path_and_query.as_str() != "/" {
+            return Err("origin must not include a path, query, or fragment");
+        }
+    }
+
+    origin
+        .parse::<HeaderValue>()
+        .map_err(|_| "origin contains an invalid header value")
 }
 
 async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
@@ -847,5 +909,23 @@ impl IntoResponse for PasswordResetRouteError {
                     .into_response()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod cors_tests {
+    use super::cors_origin_header;
+
+    #[test]
+    fn cors_origin_accepts_http_origins_and_normalizes_trailing_slashes() {
+        let origin = cors_origin_header("https://arena.example.test/").expect("valid origin");
+
+        assert_eq!(origin, "https://arena.example.test");
+    }
+
+    #[test]
+    fn cors_origin_rejects_non_origins() {
+        assert!(cors_origin_header("arena.example.test").is_err());
+        assert!(cors_origin_header("https://arena.example.test/arena").is_err());
     }
 }
