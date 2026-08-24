@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { authRedirectUrl, fetchCurrentSession } from '../api/client';
+import { AuthSessionRequestError, authRedirectUrl, fetchCurrentSession } from '../api/client';
 import { AuthContext } from './context';
 import type { AuthContextValue, AuthState } from './types';
 
@@ -34,8 +34,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
-      const message = error instanceof Error ? error.message : 'Unable to check session';
-      setState({ status: 'error', message });
+      if (error instanceof AuthSessionRequestError) {
+        setState({ status: 'error', failureKind: error.kind, message: error.message });
+        return;
+      }
+
+      setState({
+        status: 'error',
+        failureKind: 'network',
+        message: 'We could not check your session. Check your connection and try again.',
+      });
     }
   }, []);
 

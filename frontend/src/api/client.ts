@@ -15,6 +15,18 @@ import type {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const ASSET_MANIFEST_TIMEOUT_MS = 8_000;
 
+export type AuthSessionFailureKind = 'network' | 'server';
+
+export class AuthSessionRequestError extends Error {
+  readonly kind: AuthSessionFailureKind;
+
+  constructor(kind: AuthSessionFailureKind, message: string) {
+    super(message);
+    this.name = 'AuthSessionRequestError';
+    this.kind = kind;
+  }
+}
+
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse> {
   const response = await fetch(`${API_BASE_URL}/api/health`, { signal });
 
@@ -28,20 +40,43 @@ export async function fetchHealth(signal?: AbortSignal): Promise<HealthResponse>
 export async function fetchCurrentSession(
   signal?: AbortSignal,
 ): Promise<AuthSessionResponse | null> {
-  const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-    credentials: 'include',
-    signal,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+      credentials: 'include',
+      signal,
+    });
+  } catch (error) {
+    if (signal?.aborted) {
+      throw error;
+    }
+
+    throw new AuthSessionRequestError(
+      'network',
+      'We could not reach the sign-in service. Check your connection and try again.',
+    );
+  }
 
   if (response.status === 401) {
     return null;
   }
 
   if (!response.ok) {
-    throw new Error(`Session check failed with status ${response.status}`);
+    throw new AuthSessionRequestError(
+      'server',
+      'The sign-in service could not verify your session. Please try again shortly.',
+    );
   }
 
-  return response.json() as Promise<AuthSessionResponse>;
+  try {
+    return (await response.json()) as AuthSessionResponse;
+  } catch {
+    throw new AuthSessionRequestError(
+      'server',
+      'The sign-in service returned an invalid session response. Please try again shortly.',
+    );
+  }
 }
 
 export async function fetchAssetManifest(signal?: AbortSignal): Promise<AssetManifestResponse> {

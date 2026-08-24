@@ -1,4 +1,5 @@
 import type { UserProfile } from '../../../shared/protocol';
+import type { AuthSessionFailureKind } from '../api/client';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'error';
 
@@ -11,7 +12,7 @@ export type AuthState =
       message: string;
       registered: boolean;
     }
-  | { status: 'error'; message: string };
+  | { status: 'error'; failureKind: AuthSessionFailureKind; message: string };
 
 export type AuthContextValue = AuthState & {
   loginUrl: string;
