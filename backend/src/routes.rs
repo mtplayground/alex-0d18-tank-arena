@@ -101,7 +101,7 @@ pub fn router(
         .route("/api/*path", any(api_not_found))
         .fallback_service(
             ServeDir::new("frontend/dist")
-                .not_found_service(ServeFile::new("frontend/dist/index.html")),
+                .fallback(ServeFile::new("frontend/dist/index.html")),
         )
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -406,14 +406,16 @@ async fn asset_manifest(
     let mut assets = Vec::with_capacity(GAME_ASSETS.len());
 
     for asset in GAME_ASSETS {
-        let url = state.storage.presigned_get_url(asset.relative_key).await?;
-        assets.push(AssetResponse {
-            id: asset.id,
-            category: asset.category,
-            label: asset.label,
-            content_type: asset.content_type,
-            url,
-        });
+        match state.storage.presigned_get_url(asset.relative_key).await {
+            Ok(url) => assets.push(AssetResponse {
+                id: asset.id,
+                category: asset.category,
+                label: asset.label,
+                content_type: asset.content_type,
+                url,
+            }),
+            Err(StorageError::Unavailable) => break,
+        }
     }
 
     Ok(Json(AssetManifestResponse {
