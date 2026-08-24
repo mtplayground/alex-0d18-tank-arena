@@ -11,7 +11,14 @@ type AuthMode = 'login' | 'register';
 
 export function App() {
   const auth = useAuth();
-  const route = useMemo(() => window.location.pathname, []);
+  const { route, authRedirectFailed } = useMemo(
+    () => ({
+      route: window.location.pathname,
+      authRedirectFailed:
+        new URLSearchParams(window.location.search).get('auth_error') === 'unavailable',
+    }),
+    [],
+  );
   const requestedMode: AuthMode = route === '/register' ? 'register' : 'login';
 
   if (auth.status === 'loading') {
@@ -23,10 +30,10 @@ export function App() {
   }
 
   if (auth.status === 'error') {
-    return <AuthShell mode={requestedMode} />;
+    return <AuthShell mode={requestedMode} authRedirectFailed={authRedirectFailed} />;
   }
 
-  return <AuthShell mode={requestedMode} />;
+  return <AuthShell mode={requestedMode} authRedirectFailed={authRedirectFailed} />;
 }
 
 function AuthenticatedHomeBoundary() {
@@ -46,7 +53,7 @@ function LoadingScreen() {
   );
 }
 
-function AuthShell({ mode }: { mode: AuthMode }) {
+function AuthShell({ mode, authRedirectFailed }: { mode: AuthMode; authRedirectFailed: boolean }) {
   return (
     <main className="app-shell">
       <section className="auth-layout">
@@ -54,13 +61,13 @@ function AuthShell({ mode }: { mode: AuthMode }) {
           <ScenePreview />
         </div>
 
-        <AuthForm mode={mode} />
+        <AuthForm mode={mode} authRedirectFailed={authRedirectFailed} />
       </section>
     </main>
   );
 }
 
-function AuthForm({ mode }: { mode: AuthMode }) {
+function AuthForm({ mode, authRedirectFailed }: { mode: AuthMode; authRedirectFailed: boolean }) {
   const auth = useAuth();
   const isRegister = mode === 'register';
   const authEntryUrl = isRegister ? '/api/auth/register' : auth.loginUrl;
@@ -69,8 +76,9 @@ function AuthForm({ mode }: { mode: AuthMode }) {
     <section className="auth-panel" aria-labelledby="auth-title">
       {auth.status === 'unauthenticated' || auth.status === 'error' ? (
         <AuthenticationStatusNotice
+          authRedirectFailed={authRedirectFailed}
           failureKind={auth.status === 'error' ? auth.failureKind : undefined}
-          loginUrl={auth.loginUrl}
+          loginUrl={authEntryUrl}
           onRetry={() => void auth.refresh()}
           status={auth.status}
         />

@@ -1,4 +1,4 @@
-use axum::http::{header::COOKIE, HeaderMap};
+use axum::http::{header::COOKIE, HeaderMap, StatusCode};
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use thiserror::Error;
@@ -13,6 +13,7 @@ pub struct AuthClient {
     app_token: String,
     jwks_url: String,
     http: reqwest::Client,
+    redirect_probe: reqwest::Client,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -43,14 +44,32 @@ pub enum AuthError {
     TokenVerification(String),
 }
 
+#[derive(Debug, Error)]
+pub enum AuthClientInitError {
+    #[error("failed to create the platform authentication probe client")]
+    RedirectProbeClient,
+}
+
+#[derive(Debug)]
+pub enum AuthRedirectProbeError {
+    Unavailable,
+    Rejected { status: StatusCode },
+}
+
 impl AuthClient {
-    pub fn from_config(config: &AuthConfig) -> Self {
-        Self {
+    pub fn from_config(config: &AuthConfig) -> Result<Self, AuthClientInitError> {
+        let redirect_probe = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|_| AuthClientInitError::RedirectProbeClient)?;
+
+        Ok(Self {
             auth_url: config.mctai_auth_url.trim_end_matches('/').to_owned(),
             app_token: config.mctai_auth_app_token.as_str().to_owned(),
             jwks_url: config.mctai_auth_jwks_url.clone(),
             http: reqwest::Client::new(),
-        }
+            redirect_probe,
+        })
     }
 
     pub fn login_url(&self, return_to: &str) -> String {
@@ -60,6 +79,22 @@ impl AuthClient {
             urlencoding::encode(&self.app_token),
             urlencoding::encode(return_to)
         )
+    }
+
+    pub async fn probe_login_url(&self, login_url: &str) -> Result<(), AuthRedirectProbeError> {
+        let response = self
+            .redirect_probe
+            .get(login_url)
+            .send()
+            .await
+            .map_err(|_| AuthRedirectProbeError::Unavailable)?;
+        let status = response.status();
+
+        if status.is_success() || status.is_redirection() {
+            Ok(())
+        } else {
+            Err(AuthRedirectProbeError::Rejected { status })
+        }
     }
 
     pub async fn verify_headers(&self, headers: &HeaderMap) -> Result<AuthClaims, AuthError> {

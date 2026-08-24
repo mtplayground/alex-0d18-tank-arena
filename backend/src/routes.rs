@@ -21,7 +21,7 @@ use tower_http::{
 };
 use tracing::{error, info, warn};
 
-use backend::auth::AuthClient;
+use backend::auth::{AuthClient, AuthRedirectProbeError};
 use backend::config::AppConfig;
 use backend::email::{EmailClient, EmailError};
 use backend::match_results::{
@@ -85,8 +85,8 @@ pub fn router(
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/status", get(status))
-        .route("/api/auth/login", get(auth_redirect))
-        .route("/api/auth/register", get(auth_redirect))
+        .route("/api/auth/login", get(login_redirect))
+        .route("/api/auth/register", get(register_redirect))
         .route(
             "/api/auth/password-reset/request",
             get(method_not_allowed).post(password_reset_request),
@@ -220,11 +220,47 @@ async fn status() -> Json<RuntimeStatus> {
     })
 }
 
-async fn auth_redirect(State(state): State<AppState>, headers: HeaderMap) -> Redirect {
+async fn login_redirect(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    auth_redirect(state, headers, "/login?auth_error=unavailable").await
+}
+
+async fn register_redirect(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> axum::response::Response {
+    auth_redirect(state, headers, "/register?auth_error=unavailable").await
+}
+
+async fn auth_redirect(
+    state: AppState,
+    headers: HeaderMap,
+    failure_path: &'static str,
+) -> axum::response::Response {
     let return_to = frontend_return_to(&headers, &state.config);
     let login_url = state.auth.login_url(&return_to);
+    let target = auth_target_address(&login_url);
 
-    Redirect::temporary(&login_url)
+    match state.auth.probe_login_url(&login_url).await {
+        Ok(()) => Redirect::temporary(&login_url).into_response(),
+        Err(AuthRedirectProbeError::Rejected { status }) => {
+            warn!(target = %target, status = %status, "platform authentication redirect was rejected");
+            Redirect::temporary(failure_path).into_response()
+        }
+        Err(AuthRedirectProbeError::Unavailable) => {
+            warn!(target = %target, status = "unavailable", "platform authentication redirect target is unreachable");
+            Redirect::temporary(failure_path).into_response()
+        }
+    }
+}
+
+fn auth_target_address(login_url: &str) -> &str {
+    login_url
+        .split_once('?')
+        .map(|(address, _)| address)
+        .unwrap_or(login_url)
 }
 
 async fn auth_me(Extension(user): Extension<AuthenticatedUser>) -> Json<AuthSessionResponse> {

@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let address = config.socket_addr()?;
     let database = db::connect_from_config(&config.database).await?;
     db::run_migrations(&database).await?;
-    let auth = AuthClient::from_config(&config.auth);
+    let auth = AuthClient::from_config(&config.auth)?;
     let email = EmailClient::from_config(&config.email);
     let storage = StorageClient::from_config(&config.object_storage).await;
     let app = routes::router(config.clone(), storage, database, auth, email);

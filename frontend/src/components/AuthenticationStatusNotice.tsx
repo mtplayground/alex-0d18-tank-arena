@@ -1,6 +1,7 @@
 import type { AuthSessionFailureKind } from '../api/client';
 
 type AuthenticationStatusNoticeProps = {
+  authRedirectFailed?: boolean;
   failureKind?: AuthSessionFailureKind;
   loginUrl: string;
   onRetry: () => void;
@@ -8,12 +9,15 @@ type AuthenticationStatusNoticeProps = {
 };
 
 export function AuthenticationStatusNotice({
+  authRedirectFailed = false,
   failureKind,
   loginUrl,
   onRetry,
   status,
 }: AuthenticationStatusNoticeProps) {
-  const content = statusContent(status, failureKind);
+  const content = authRedirectFailed
+    ? authRedirectFailureContent()
+    : statusContent(status, failureKind);
 
   return (
     <section className="auth-status-notice" role="alert" aria-live="assertive">
@@ -22,17 +26,25 @@ export function AuthenticationStatusNotice({
         <p>{content.message}</p>
       </div>
       <div className="auth-status-actions">
-        {status === 'error' ? (
+        {!authRedirectFailed && status === 'error' ? (
           <button className="secondary-action" type="button" onClick={onRetry}>
             Retry session check
           </button>
         ) : null}
         <a className="secondary-action" href={loginUrl}>
-          Sign in again
+          {authRedirectFailed ? 'Try again' : 'Sign in again'}
         </a>
       </div>
     </section>
   );
+}
+
+function authRedirectFailureContent() {
+  return {
+    eyebrow: 'Sign-in temporarily unavailable',
+    message:
+      'We could not start platform sign-in. Please try again in a moment. Your arena preview is still available.',
+  };
 }
 
 function statusContent(status: 'error' | 'unauthenticated', failureKind?: AuthSessionFailureKind) {
