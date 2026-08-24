@@ -4,6 +4,7 @@ import type { MissionResult, MissionSelectItem, MissionSyncStatus } from './miss
 
 type MissionSelectScreenProps = {
   missions: MissionSelectItem[];
+  onClose: () => void;
   onStartMission: (missionId: string) => void;
   syncStatus: MissionSyncStatus;
 };
@@ -17,6 +18,7 @@ type MissionResultsScreenProps = {
 
 export function MissionSelectScreen({
   missions,
+  onClose,
   onStartMission,
   syncStatus,
 }: MissionSelectScreenProps) {
@@ -30,9 +32,14 @@ export function MissionSelectScreen({
             <span>Solo operations</span>
             <h2 id="mission-select-title">Mission select</h2>
           </div>
-          <strong>
-            {completedCount}/{missions.length} clear
-          </strong>
+          <div className="mission-select-actions">
+            <strong>
+              {completedCount}/{missions.length} clear
+            </strong>
+            <button className="mission-select-close" type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
         </header>
 
         <div className="mission-card-grid">

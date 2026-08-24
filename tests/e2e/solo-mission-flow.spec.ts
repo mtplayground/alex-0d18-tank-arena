@@ -43,7 +43,12 @@ test('solo mission flow logs in, completes an AI engagement, and saves progress'
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   await expect(page.getByText('Welcome back, Solo Pilot!')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose mission' })).toBeVisible();
+  await page.getByRole('button', { name: 'Choose mission' }).click();
   await expect(page.getByRole('heading', { name: 'Mission select' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page.getByRole('heading', { name: 'Mission select' })).toBeHidden();
+  await page.getByRole('button', { name: 'Choose mission' }).click();
   await expect(page.getByRole('button', { name: 'Start' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Start' }).click();
@@ -82,6 +87,8 @@ test('solo mission flow logs in, completes an AI engagement, and saves progress'
 
   await page.getByRole('button', { name: 'Continue' }).click();
 
+  await expect(page.getByRole('button', { name: 'Choose mission' })).toBeVisible();
+  await page.getByRole('button', { name: 'Choose mission' }).click();
   await expect(page.getByRole('heading', { name: 'Mission select' })).toBeVisible();
   await expect(page.getByText('1/5 clear')).toBeVisible();
 });
