@@ -63,6 +63,7 @@ function AuthShell({ mode }: { mode: AuthMode }) {
 function AuthForm({ mode }: { mode: AuthMode }) {
   const auth = useAuth();
   const isRegister = mode === 'register';
+  const authEntryUrl = isRegister ? '/api/auth/register' : auth.loginUrl;
 
   return (
     <section className="auth-panel" aria-labelledby="auth-title">
@@ -82,7 +83,7 @@ function AuthForm({ mode }: { mode: AuthMode }) {
           : 'Sign in to continue into your player dashboard and mission workspace.'}
       </p>
 
-      <form className="auth-form" action={auth.loginUrl} method="post">
+      <form className="auth-form" action={authEntryUrl} method="get">
         <button className="primary-action" type="submit">
           Continue with Google
         </button>

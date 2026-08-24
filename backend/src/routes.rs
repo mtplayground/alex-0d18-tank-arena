@@ -85,8 +85,8 @@ pub fn router(
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/status", get(status))
-        .route("/api/auth/login", get(auth_redirect).post(auth_redirect))
-        .route("/api/auth/register", get(auth_redirect).post(auth_redirect))
+        .route("/api/auth/login", get(auth_redirect))
+        .route("/api/auth/register", get(auth_redirect))
         .route(
             "/api/auth/password-reset/request",
             get(method_not_allowed).post(password_reset_request),
