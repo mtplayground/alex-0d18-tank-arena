@@ -5,11 +5,13 @@ import type { MissionSequenceItem, MissionStatus, MissionSyncStatus } from './mi
 
 export function MissionPanel({
   mission,
+  onOpenMissionSelect,
   sequence,
   status,
   syncStatus,
 }: {
   mission: MissionDefinition;
+  onOpenMissionSelect?: () => void;
   sequence: MissionSequenceItem[];
   status: MissionStatus;
   syncStatus: MissionSyncStatus;
@@ -34,6 +36,11 @@ export function MissionPanel({
             </li>
           ))}
         </ol>
+        {onOpenMissionSelect ? (
+          <button className="mission-select-trigger" type="button" onClick={onOpenMissionSelect}>
+            Choose mission
+          </button>
+        ) : null}
       </section>
     </Html>
   );

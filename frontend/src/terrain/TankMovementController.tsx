@@ -50,6 +50,7 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
   const aiPoseRef = useRef<TankPose>(createInitialAiPose());
   const missionRunner = useMissionRunner({ syncProgress: true });
   const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
+  const [missionSelectOpen, setMissionSelectOpen] = useState(false);
   const {
     activeMission,
     applyResolution,
@@ -76,6 +77,12 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
     setLastResolution(null);
     aiPoseRef.current = createInitialAiPose();
   }, [activeMission.id]);
+
+  useEffect(() => {
+    if (screen !== 'select') {
+      setMissionSelectOpen(false);
+    }
+  }, [screen]);
 
   useFrame((_, delta) => {
     const nextPose = integrateTankPose(tankPose.current, driveInput.current, delta);
@@ -121,17 +128,19 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
         poseRef={poseRef}
         targetPoseRef={aiPoseRef}
       />
-      {screen === 'combat' ? (
+      {screen === 'combat' || (screen === 'select' && !missionSelectOpen) ? (
         <MissionPanel
           mission={activeMission}
+          onOpenMissionSelect={screen === 'select' ? () => setMissionSelectOpen(true) : undefined}
           sequence={sequence}
           status={status}
           syncStatus={syncStatus}
         />
       ) : null}
-      {screen === 'select' ? (
+      {screen === 'select' && missionSelectOpen ? (
         <MissionSelectScreen
           missions={missionChoices}
+          onClose={() => setMissionSelectOpen(false)}
           onStartMission={startMission}
           syncStatus={syncStatus}
         />
