@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 
 import { useAuth } from './auth/useAuth';
+import { PlayableGameScene } from './components/PlayableGameScene';
 import { ScenePreview } from './components/ScenePreview';
 import { MultiplayerDuelPanel } from './multiplayer/MultiplayerDuelPanel';
 
@@ -106,8 +107,8 @@ function AuthenticatedHome() {
   return (
     <main className="app-shell">
       <section className="dashboard-layout">
-        <div className="scene-panel dashboard-scene" aria-label="3D arena preview">
-          <ScenePreview />
+        <div className="scene-panel dashboard-scene" aria-label="Playable 3D arena">
+          <PlayableGameScene />
         </div>
 
         <section className="dashboard-panel" aria-labelledby="dashboard-title">
