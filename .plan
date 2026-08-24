@@ -1,30 +1,42 @@
-Architecture plan
+Architecture plan: authentication, scene separation, and resilience (#63–#73)
+
+Current architecture
+- `frontend/src/App.tsx` selects unauthenticated auth screens or the authenticated dashboard from `AuthProvider`; both currently mount `components/ScenePreview.tsx`.
+- `ScenePreview` currently mounts the full `TankMovementController`, which transitively starts the mission runner, input listeners, AI, projectiles, HUD, and mission screens. `TerrainRenderer` owns the optional asset-manifest request and already has procedural terrain as its render fallback.
+- `frontend/src/api/client.ts` is the HTTP/WebSocket boundary and `shared/protocol.ts` contains browser-visible API DTOs. Backend routes live in `backend/src/routes.rs` and have proxy-aware public-origin derivation, but no CORS layer.
+- Playwright E2E tests intercept frontend API and WebSocket traffic in `tests/e2e/`; they are the right level for auth-screen isolation and CTA behavior.
 
 Module structure and file organization
-- `frontend/`: browser client for auth screens, solo mission UI, multiplayer duel UI, combat HUD, camera controls, and 3D rendering. Keep rendering code under `frontend/src/game/rendering`, gameplay input/state presentation under `frontend/src/game`, auth context/routes under `frontend/src/auth`, and API/WebSocket clients under `frontend/src/api`.
-- `backend/`: HTTP API, WebSocket server, matchmaking, authoritative match sessions, mission persistence, asset URL generation, and deployment/runtime configuration. Organize by feature: `auth`, `users`, `missions`, `matches`, `matchmaking`, `assets`, `config`, and `db`.
-- `shared/`: protocol and domain types used by both sides where the chosen stack supports sharing. Include user-safe DTOs, auth request/response shapes, mission state, combat events, WebSocket messages, match snapshots, and validation schemas.
-- `migrations/`: database migrations owned by the backend. Keep schema changes additive and issue-scoped.
-- `tests/`: end-to-end tests for solo mission and multiplayer duel flows, plus focused backend integration tests where persistence or auth behavior is risky.
+- Keep `ScenePreview.tsx` as the lightweight, unauthenticated `ArenaPreview` (or rename/export it accordingly): Canvas, lighting, `TerrainRenderer`, a static tank model/presentation, and a passive camera only. It must not import `TankMovementController` or `useMissionRunner`.
+- Add a separate authenticated `PlayableArena` scene container under `frontend/src/components/` (or a colocated `GameScene.tsx`). It owns the Canvas, scene lifecycle state, retry key, and the existing interactive `TankMovementController`/`CameraRig` subtree. This creates an explicit capability boundary rather than feature flags spread through gameplay code.
+- Extract reusable visual-only tank geometry from `TankMovementController.tsx` into a terrain/component-level presentation module if both scene variants need it. Gameplay-only components remain in `frontend/src/terrain/`: movement, AI, projectiles, combat HUD, mission runner, and mission screens.
+- Add focused UI infrastructure under `frontend/src/components/`: an authenticated-home React error boundary, a scene loading/error overlay, and an API/request error notice. These components receive concise state and retry callbacks; they do not own API calls or game state.
+- Keep authentication classifications in `frontend/src/auth/types.ts` and map fetch failures centrally in `frontend/src/api/client.ts`/`AuthProvider.tsx`. Model unauthenticated, network/timeout, and server failures distinctly, while retaining `refresh`, login, and registration redirect URLs.
+- Keep `TerrainRenderer.tsx` and `useAssetManifest.ts` responsible for optional asset enrichment only. Expand their state to distinguish loading, manifest failure, and per-resource load failure; procedural terrain remains mounted for every state and a non-blocking notice is surfaced by the scene container.
+- Change `MissionScreens.tsx` and `TankMovementController.tsx` so mission selection is controlled by an explicit open/close state. Default to closed on entry to `PlayableArena`; include an accessible launch control, close control, and a non-fullscreen/panel presentation that keeps the 3D scene visible. Preserve existing mission progression/persistence behavior once the panel is opened.
+- In `backend/src/routes.rs`, add a CORS-layer constructor driven by `AppConfig.server.allowed_cors_origin`; add the `tower-http` `cors` feature in `backend/Cargo.toml`. When configured, permit exactly the parsed configured origin, credentials, required methods, and headers. When absent, do not attach permissive CORS (same-origin remains the safe/default behavior). Apply it at the outer router so preflight HTTP requests are handled and WebSocket upgrade requests receive compatible origin headers. Continue using `X-Forwarded-Host`/`X-Forwarded-Proto` for public redirect URLs, never the rewritten host as an authority decision.
 
-Issue dependencies
-- #1 establishes the frontend/backend skeleton, local scripts, lint/build/test entry points, and the baseline folder layout.
-- #2 and #3 unblock most backend work by defining persistence and runtime configuration.
-- #4 depends on #3 and supports later rendering/asset delivery work.
-- #5-#9 form the authentication slice: data model, hashing, registration/login, middleware, password reset, then frontend auth pages/context.
-- #10-#17 form the core solo combat slice: terrain rendering, cover/line-of-sight, movement/camera, stylized visuals, armor angle, damage mitigation, firing/hit detection, and HUD feedback.
-- #18-#21 build solo mission playability on top of combat: AI behavior, mission sequencing, progress persistence, and mission UI.
-- #22-#27 build multiplayer on top of auth and combat primitives: WebSocket sessions, matchmaking, authoritative sync, reconnection, results persistence, and duel UI.
-- #28 and #29 validate the critical user journeys after their respective slices exist.
-- #30 reviews cross-cutting error behavior after major features are implemented.
-- #31 packages production configuration, build output, health checks, and deployment documentation.
+Shared types and behavioral contracts
+- Scene mode is structural: preview has no gameplay hooks or controls; playable is only rendered after `auth.status === 'authenticated'`. This guarantees no pre-auth mission-progress reads/writes or local mission state, instead of relying only on disabled controls.
+- Define request-error categories as a small frontend type (for example `unauthenticated`, `network`, `server`) with user-safe text and available recovery actions. Do not add backend error details to public UI.
+- Asset state remains optional: `ready` can enrich terrain, while `loading` and `error` render procedural geometry. Resource loader failures must resolve to the same fallback instead of throwing out of the Canvas.
+- Error boundaries log the original caught error and component stack to `console.error`, show a readable fallback, and retry by remounting only the failed scene subtree. The dashboard profile and multiplayer panel must stay mounted when the scene fails.
+- Login and registration are platform-auth redirects only. Remove the unused email field and use the exact CTA `Continue with Google`; retain `Create a new profile` as the secondary registration path. No Google OAuth implementation belongs in this repository.
 
-Key design decisions
-- Use a layered backend: route handlers validate input and translate errors, services own domain behavior, repositories own database access, and WebSocket session code owns connection lifecycle only.
-- Treat the server as authoritative for multiplayer match state. The frontend predicts only local presentation where needed and reconciles against server snapshots/events.
-- Keep solo combat logic deterministic and separable from rendering so AI, missions, tests, and multiplayer synchronization can reuse the same rules.
-- Define shared message contracts early for HTTP DTOs and WebSocket events to prevent frontend/backend drift.
-- Store passwords only as modern salted password hashes, never raw or reversible values. Password reset tokens should be single-use, expiring, and stored hashed.
-- Derive public origin from proxy-aware configuration or forwarded headers. Do not base CORS or same-origin decisions on the raw internal `Host` header.
-- Keep asset storage behind a small backend adapter so local development, object storage, and signed/public asset URLs can vary without touching gameplay code.
-- Prefer focused migrations and tests per issue so each later session can ship one vertical slice without broad rewrites.
+Issue order and dependencies
+1. #63 split shared `ScenePreview` into preview and playable scene variants. This is the foundational capability boundary.
+2. #64 enforce preview isolation by construction: no keyboard/gameplay subtree, AI, HUD, mission UI, mission-runner state, or progress traffic. Depends on #63.
+3. #65 make the auth card the visual primary path and leave the preview as background/secondary content. Depends on #64.
+4. #71 align both auth routes with the platform redirect contract and exact CTA/secondary-link copy. It can ship alongside #65, but should be completed before auth-screen E2E coverage.
+5. #66 add the authenticated-home error boundary and partial fallback shell. It should precede scene-specific failure work.
+6. #67 add playable-scene loading, failure, and retry handling inside the boundary. Depends on #66.
+7. #68 make asset manifest and signed-resource failures non-blocking and visibly degraded. Depends on #67.
+8. #69 classify authenticated session/API failures and render recovery actions in the auth/dashboard shell. Depends on #66; coordinate copy and retry behavior with #67.
+9. #70 make mission selection an explicit toggleable in-game panel. Depends on #63; preserve existing mission persistence and result transitions.
+10. #72 independently add credentialed, configured-origin CORS to the Axum router and test preflight/cookie behavior. It has no frontend dependency but should be validated against proxy-aware deployment assumptions.
+11. #73 add unauthenticated E2E coverage after #63/#64/#71, and update stale button expectations in existing solo tests. Assert no mission-progress calls, no HUD/mission-select DOM, no gameplay input effect, and exact CTA form submission/redirect behavior.
+
+Validation strategy
+- For each frontend issue run `npm run lint` and the relevant Playwright spec; run the full `npm run build` before final integration.
+- For #72 run `cargo check --workspace --all-targets`; add focused route/CORS tests where feasible and manually verify that absence of `ALLOWED_CORS_ORIGIN` does not emit wildcard credentialed CORS headers.
+- Use Playwright route counters and DOM assertions for pre-auth guarantees; mock manifest failure and resource failure to verify the 3D fallback does not disable dashboard or multiplayer interaction.
