@@ -48,7 +48,7 @@ export function TankMovementController({ poseRef }: TankMovementControllerProps)
   const driveInput = useKeyboardDrive();
   const tankPose = useRef(createInitialTankPose());
   const aiPoseRef = useRef<TankPose>(createInitialAiPose());
-  const missionRunner = useMissionRunner();
+  const missionRunner = useMissionRunner({ syncProgress: true });
   const [lastResolution, setLastResolution] = useState<ProjectileResolution | null>(null);
   const {
     activeMission,

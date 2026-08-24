@@ -54,7 +54,11 @@ export type MissionRunner = {
   targetIntegrity: number;
 };
 
-export function useMissionRunner(): MissionRunner {
+type MissionRunnerOptions = {
+  syncProgress: boolean;
+};
+
+export function useMissionRunner({ syncProgress }: MissionRunnerOptions): MissionRunner {
   const [state, setState] = useState<MissionRunnerState>(() => ({
     completedMissionIds: [],
     cursor: 0,
@@ -69,6 +73,13 @@ export function useMissionRunner(): MissionRunner {
   const activeMission = MISSIONS[state.cursor];
 
   useEffect(() => {
+    if (!syncProgress) {
+      setPersistenceEnabled(false);
+      setSyncStatus('local');
+      setHydrated(true);
+      return undefined;
+    }
+
     const controller = new AbortController();
 
     fetchMissionProgress(controller.signal)
@@ -98,7 +109,7 @@ export function useMissionRunner(): MissionRunner {
       });
 
     return () => controller.abort();
-  }, []);
+  }, [syncProgress]);
 
   const applyResolution = useCallback((resolution: ProjectileResolution) => {
     if (resolution.kind !== 'target-hit') {
@@ -139,7 +150,7 @@ export function useMissionRunner(): MissionRunner {
   }, []);
 
   useEffect(() => {
-    if (!hydrated || !persistenceEnabled || state.screen === 'select') {
+    if (!syncProgress || !hydrated || !persistenceEnabled || state.screen === 'select') {
       return;
     }
 
@@ -169,7 +180,7 @@ export function useMissionRunner(): MissionRunner {
       });
 
     return () => controller.abort();
-  }, [hydrated, persistenceEnabled, state]);
+  }, [hydrated, persistenceEnabled, state, syncProgress]);
 
   const startMission = useCallback((missionId: string) => {
     setState((current) => {
