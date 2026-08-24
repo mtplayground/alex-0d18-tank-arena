@@ -115,6 +115,56 @@ a {
   font-weight: 800;
 }
 
+.asset-fallback-notice {
+  position: absolute;
+  z-index: 2;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: min(430px, calc(100% - 28px));
+  border: 1px solid rgb(159 104 29 / 52%);
+  border-radius: 6px;
+  padding: 9px 10px;
+  color: #473314;
+  background: rgb(255 249 228 / 94%);
+  box-shadow: 0 8px 20px rgb(74 56 21 / 16%);
+}
+
+.asset-fallback-notice div {
+  display: grid;
+  flex: 1;
+  gap: 3px;
+}
+
+.asset-fallback-notice p {
+  margin: 0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.asset-fallback-notice .eyebrow {
+  color: #785118;
+}
+
+.asset-retry-button {
+  flex: none;
+  border: 1px solid #8d611d;
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: #4d3410;
+  background: #fff7df;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.asset-retry-button:hover {
+  background: #ffedbd;
+}
+
 .auth-scene {
   position: absolute;
   z-index: 0;

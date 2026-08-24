@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CameraRig } from '../terrain/CameraRig';
 import { TankMovementController } from '../terrain/TankMovementController';
 import { createInitialTankPose, type TankPose } from '../terrain/tankState';
+import { useAssetManifest } from '../terrain/useAssetManifest';
 import { ArenaEnvironment } from './ArenaEnvironment';
+import { AssetFallbackNotice } from './AssetFallbackNotice';
 import { ErrorBoundary } from './ErrorBoundary';
 
 type SceneStatus = 'failed' | 'loading' | 'ready';
@@ -12,12 +14,24 @@ type SceneStatus = 'failed' | 'loading' | 'ready';
 export function PlayableGameScene() {
   const [sceneStatus, setSceneStatus] = useState<SceneStatus>('loading');
   const [sceneKey, setSceneKey] = useState(0);
+  const [optionalAssetsUnavailable, setOptionalAssetsUnavailable] = useState(false);
+  const assetManifest = useAssetManifest();
   const retryScene = useCallback(() => {
     setSceneStatus('loading');
     setSceneKey((current) => current + 1);
   }, []);
   const markReady = useCallback(() => setSceneStatus('ready'), []);
   const markFailed = useCallback(() => setSceneStatus('failed'), []);
+  const markOptionalAssetsUnavailable = useCallback(() => setOptionalAssetsUnavailable(true), []);
+  const retryAssets = useCallback(() => {
+    setOptionalAssetsUnavailable(false);
+    assetManifest.retry();
+  }, [assetManifest]);
+  const assetFallbackMessage =
+    assetManifest.status === 'unavailable'
+      ? assetManifest.message
+      : 'Some optional arena assets could not be loaded. The procedural battlefield is active.';
+  const showAssetFallback = assetManifest.status === 'unavailable' || optionalAssetsUnavailable;
 
   return (
     <div className="playable-scene-shell">
@@ -35,6 +49,9 @@ export function PlayableGameScene() {
           <SceneFailureFallback onRetry={retryScene} />
         ) : (
           <>
+            {showAssetFallback ? (
+              <AssetFallbackNotice message={assetFallbackMessage} onRetry={retryAssets} />
+            ) : null}
             {sceneStatus === 'loading' ? <SceneLoadingOverlay /> : null}
             <Canvas
               key={sceneKey}
@@ -44,7 +61,10 @@ export function PlayableGameScene() {
               fallback={<CanvasUnavailable onFailure={markFailed} />}
               onCreated={markReady}
             >
-              <PlayableBattlefield />
+              <PlayableBattlefield
+                assetManifest={assetManifest}
+                onAssetUnavailable={markOptionalAssetsUnavailable}
+              />
             </Canvas>
           </>
         )}
@@ -83,12 +103,17 @@ function SceneFailureFallback({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function PlayableBattlefield() {
+type PlayableBattlefieldProps = {
+  assetManifest: ReturnType<typeof useAssetManifest>;
+  onAssetUnavailable: () => void;
+};
+
+function PlayableBattlefield({ assetManifest, onAssetUnavailable }: PlayableBattlefieldProps) {
   const tankPoseRef = useRef<TankPose>(createInitialTankPose());
 
   return (
     <>
-      <ArenaEnvironment />
+      <ArenaEnvironment assetManifest={assetManifest} onAssetUnavailable={onAssetUnavailable} />
       <TankMovementController poseRef={tankPoseRef} />
       <CameraRig poseRef={tankPoseRef} />
     </>

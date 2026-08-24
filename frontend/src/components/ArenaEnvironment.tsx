@@ -1,7 +1,13 @@
 import { TerrainRenderer } from '../terrain/TerrainRenderer';
+import type { AssetManifestState } from '../terrain/useAssetManifest';
 import { TACTICAL_COLORS } from '../terrain/visualStyle';
 
-export function ArenaEnvironment() {
+type ArenaEnvironmentProps = {
+  assetManifest: AssetManifestState;
+  onAssetUnavailable: () => void;
+};
+
+export function ArenaEnvironment({ assetManifest, onAssetUnavailable }: ArenaEnvironmentProps) {
   return (
     <>
       <color attach="background" args={[TACTICAL_COLORS.sky]} />
@@ -14,7 +20,7 @@ export function ArenaEnvironment() {
         shadow-mapSize-height={1024}
         shadow-mapSize-width={1024}
       />
-      <TerrainRenderer />
+      <TerrainRenderer assetManifest={assetManifest} onAssetUnavailable={onAssetUnavailable} />
     </>
   );
 }
