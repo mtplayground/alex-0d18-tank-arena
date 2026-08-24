@@ -58,8 +58,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const value = useMemo<AuthContextValue>(
     () => ({
       ...state,
-      loginUrl: authRedirectUrl('login'),
-      registerUrl: authRedirectUrl('register'),
+      loginUrl: authRedirectUrl(),
       refresh: () => loadSession(),
     }),
     [loadSession, state],

@@ -273,6 +273,6 @@ export function matchWebSocketUrl(path: string): string {
   return url.toString();
 }
 
-export function authRedirectUrl(mode: 'login' | 'register'): string {
-  return `${API_BASE_URL}/api/auth/${mode}`;
+export function authRedirectUrl(): string {
+  return `${API_BASE_URL}/api/auth/login`;
 }

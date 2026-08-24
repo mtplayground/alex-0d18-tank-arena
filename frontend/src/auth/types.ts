@@ -16,6 +16,5 @@ export type AuthState =
 
 export type AuthContextValue = AuthState & {
   loginUrl: string;
-  registerUrl: string;
   refresh: () => Promise<void>;
 };
