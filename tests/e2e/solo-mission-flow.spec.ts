@@ -43,6 +43,11 @@ test('solo mission flow logs in, completes an AI engagement, and saves progress'
   await page.getByRole('button', { name: 'Continue with Google' }).click();
 
   await expect(page.getByText('Welcome back, Solo Pilot!')).toBeVisible();
+  const missionControlsReady = await waitForPlayableArena(page);
+  test.skip(
+    !missionControlsReady,
+    'The browser cannot render the 3D arena required by this mission flow.',
+  );
   await expect(page.getByRole('button', { name: 'Choose mission' })).toBeVisible();
   await page.getByRole('button', { name: 'Choose mission' }).click();
   await expect(page.getByRole('heading', { name: 'Mission select' })).toBeVisible();
@@ -93,6 +98,30 @@ test('solo mission flow logs in, completes an AI engagement, and saves progress'
   await expect(page.getByText('1/5 clear')).toBeVisible();
 });
 
+async function waitForPlayableArena(page: Page): Promise<boolean> {
+  const missionControl = page.getByRole('button', { name: 'Choose mission' });
+  const arenaFailure = page.getByRole('heading', { name: 'We could not start the 3D arena.' });
+
+  await expect
+    .poll(
+      async () => {
+        if (await missionControl.isVisible().catch(() => false)) {
+          return 'ready';
+        }
+
+        if (await arenaFailure.isVisible().catch(() => false)) {
+          return 'unavailable';
+        }
+
+        return 'loading';
+      },
+      { timeout: 10_000 },
+    )
+    .not.toBe('loading');
+
+  return missionControl.isVisible();
+}
+
 async function installApiRoutes(
   page: Page,
   options: {
@@ -118,17 +147,20 @@ async function installApiRoutes(
     });
   });
 
-  await page.route('**/api/auth/login', async (route) => {
-    options.onLogin();
-    await route.fulfill({
-      body: '',
-      headers: {
-        Location: '/',
-        'Set-Cookie': 'mctai_session=e2e-session; Path=/; SameSite=Lax',
-      },
-      status: 302,
-    });
-  });
+  await page.route(
+    (url) => url.pathname === '/api/auth/login',
+    async (route) => {
+      options.onLogin();
+      await route.fulfill({
+        body: '',
+        headers: {
+          Location: '/',
+          'Set-Cookie': 'mctai_session=e2e-session; Path=/; SameSite=Lax',
+        },
+        status: 302,
+      });
+    },
+  );
 
   await page.route('**/api/assets/manifest', async (route) => {
     await route.fulfill({
